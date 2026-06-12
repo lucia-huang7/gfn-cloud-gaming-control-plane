@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: gfn-control-plane
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+    cassandra:
+      contact-points: ${CASSANDRA_CONTACT_POINTS:localhost}
+      port: ${CASSANDRA_PORT:9042}
+      keyspace-name: ${CASSANDRA_KEYSPACE:gfn_control_plane}
+      local-datacenter: ${CASSANDRA_LOCAL_DATACENTER:datacenter1}
+      schema-action: CREATE_IF_NOT_EXISTS
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+control-plane:
+  reservation-ttl-seconds: 45
+  reconcile-interval-ms: 5000
+  heartbeat-timeout-seconds: 20
+
