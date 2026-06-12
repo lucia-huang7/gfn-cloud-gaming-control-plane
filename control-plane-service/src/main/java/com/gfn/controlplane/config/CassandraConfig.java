@@ -4,7 +4,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.cassandra.config.AbstractCassandraConfiguration;
 import org.springframework.data.cassandra.config.SchemaAction;
-import org.springframework.data.cassandra.config.SessionBuilderConfigurer;
 import org.springframework.data.cassandra.core.cql.keyspace.CreateKeyspaceSpecification;
 import org.springframework.data.cassandra.repository.config.EnableCassandraRepositories;
 
@@ -41,6 +40,11 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
     }
 
     @Override
+    protected String getLocalDataCenter() {
+        return localDatacenter;
+    }
+
+    @Override
     public SchemaAction getSchemaAction() {
         return SchemaAction.CREATE_IF_NOT_EXISTS;
     }
@@ -48,10 +52,5 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
     @Override
     protected List<CreateKeyspaceSpecification> getKeyspaceCreations() {
         return List.of(CreateKeyspaceSpecification.createKeyspace(keyspaceName).ifNotExists().withSimpleReplication(1));
-    }
-
-    @Override
-    protected SessionBuilderConfigurer getSessionBuilderConfigurer() {
-        return builder -> builder.withLocalDatacenter(localDatacenter);
     }
 }
