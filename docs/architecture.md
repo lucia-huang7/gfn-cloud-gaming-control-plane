@@ -14,7 +14,7 @@ NodeController
   GET /api/v1/nodes
 
 PlacementService
-  filters nodes by region, GPU profile, health, and free capacity
+  filters nodes by region, GPU profile, health, latency SLA, and free capacity
   ranks candidates with CapacityScorer
   calls RedisLeaseManager for reservation
 
@@ -114,7 +114,12 @@ node.region == request.region
 node.gpuProfile >= request.gpuProfile
 node.status == HEALTHY
 node.availableSlots > 0
+node.avgLatencyMs <= request.maxLatencyMs
 ```
+
+`maxLatencyMs` is treated as an SLA gate. Nodes above the requested latency are
+not placement candidates; latency scoring only ranks nodes that already satisfy
+the SLA.
 
 ## Redis Keys
 

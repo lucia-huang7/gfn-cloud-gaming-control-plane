@@ -20,7 +20,7 @@ public class PlacementService {
     }
 
     public PlacementResult place(String sessionId, CreateSessionRequest request) {
-        return nodeService.findHealthyNodes(request.region(), request.gpuProfile()).stream()
+        return nodeService.findHealthyNodes(request.region(), request.gpuProfile(), request.maxLatencyMs()).stream()
                 .sorted(Comparator.comparingDouble((GpuNode node) -> scorer.score(node, request)).reversed())
                 .filter(node -> leaseManager.tryReserve(node, sessionId))
                 .findFirst()

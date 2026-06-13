@@ -37,12 +37,17 @@ public class NodeService {
     }
 
     public List<GpuNode> findHealthyNodes(Region region, GpuProfile gpuProfile) {
+        return findHealthyNodes(region, gpuProfile, Integer.MAX_VALUE);
+    }
+
+    public List<GpuNode> findHealthyNodes(Region region, GpuProfile gpuProfile, int maxLatencyMs) {
         return stateStore.listNodes().stream()
                 .map(this::fromSnapshot)
                 .filter(node -> node.region() == region)
                 .filter(node -> node.gpuProfile().ordinal() >= gpuProfile.ordinal())
                 .filter(node -> node.status() == NodeStatus.HEALTHY)
                 .filter(node -> node.availableSlots() > 0)
+                .filter(node -> node.avgLatencyMs() <= maxLatencyMs)
                 .sorted(Comparator.comparing(GpuNode::nodeId))
                 .toList();
     }
