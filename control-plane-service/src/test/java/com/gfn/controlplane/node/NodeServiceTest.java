@@ -2,14 +2,18 @@ package com.gfn.controlplane.node;
 
 import com.gfn.controlplane.session.GpuProfile;
 import com.gfn.controlplane.session.Region;
+import com.gfn.controlplane.security.CallerContext;
+import com.gfn.controlplane.security.CallerRole;
 import com.gfn.controlplane.state.NodeSnapshot;
 import com.gfn.controlplane.state.RedisStateStore;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +23,11 @@ import static org.mockito.Mockito.when;
 class NodeServiceTest {
     private final RedisStateStore stateStore = mock(RedisStateStore.class);
     private final NodeService nodeService = new NodeService(stateStore);
+
+    @AfterEach
+    void clearCaller() {
+        CallerContext.clear();
+    }
 
     @Test
     void registerInitializesControlPlaneCapacityCounter() {
@@ -42,6 +51,27 @@ class NodeServiceTest {
         assertThat(response.activeSessions()).isEqualTo(1);
         verify(stateStore).saveNode(any(NodeSnapshot.class));
         verify(stateStore, never()).setNodeAvailableSlots("node-1", 8);
+    }
+
+    @Test
+    void nodeCallerCannotRegisterDifferentNodeId() {
+        CallerContext.set(new CallerContext(CallerRole.NODE, null, "node-1"));
+        RegisterNodeRequest request = new RegisterNodeRequest("node-2", Region.US_WEST, GpuProfile.ULTRA, 8, 20);
+
+        assertThatThrownBy(() -> nodeService.register(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("node-2");
+        verify(stateStore, never()).saveNode(any(NodeSnapshot.class));
+    }
+
+    @Test
+    void nodeCallerCannotHeartbeatDifferentNodeId() {
+        CallerContext.set(new CallerContext(CallerRole.NODE, null, "node-1"));
+
+        assertThatThrownBy(() -> nodeService.heartbeat("node-2", new HeartbeatRequest(8, 0)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("node-2");
+        verify(stateStore, never()).saveNode(any(NodeSnapshot.class));
     }
 
     private NodeSnapshot node(String nodeId, int totalSlots, int availableSlots, int activeSessions) {

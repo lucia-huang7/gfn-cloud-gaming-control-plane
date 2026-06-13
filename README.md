@@ -41,6 +41,7 @@ Register a GPU node:
 curl -X POST http://localhost:8080/api/v1/nodes/register \
   -H 'Content-Type: application/json' \
   -H 'X-Control-Plane-Token: dev-node-token' \
+  -H 'X-Node-Id: us-west-a10g-1' \
   -d '{"nodeId":"us-west-a10g-1","region":"US_WEST","gpuProfile":"ULTRA","totalSlots":4,"avgLatencyMs":24}'
 ```
 
@@ -59,13 +60,14 @@ curl -X POST http://localhost:8080/api/v1/sessions \
 
 ```text
 client token -> create/read own tenant sessions, read capacity
-node token   -> register nodes and send heartbeats
+node token   -> register and heartbeat only its own X-Node-Id
 admin token  -> all endpoints, including terminate and node inventory
 ```
 
-Client requests must include `X-Tenant-Id`. Idempotency keys are scoped by tenant
-and bound to a request-body fingerprint; reusing a key with a different body is
-rejected. Session reads are tenant-checked unless the caller is admin.
+Client requests must include `X-Tenant-Id`; node requests must include
+`X-Node-Id`. Idempotency keys are scoped by tenant and bound to a request-body
+fingerprint; reusing a key with a different body is rejected. Session reads are
+tenant-checked unless the caller is admin.
 
 ## Endpoints
 

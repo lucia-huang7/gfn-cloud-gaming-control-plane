@@ -2,9 +2,14 @@ package com.gfn.controlplane.security;
 
 public record CallerContext(
         CallerRole role,
-        String tenantId
+        String tenantId,
+        String nodeId
 ) {
     private static final ThreadLocal<CallerContext> CURRENT = new ThreadLocal<>();
+
+    public CallerContext(CallerRole role, String tenantId) {
+        this(role, tenantId, null);
+    }
 
     public static void set(CallerContext context) {
         CURRENT.set(context);
@@ -26,4 +31,3 @@ public record CallerContext(
         return role == CallerRole.ADMIN;
     }
 }
-

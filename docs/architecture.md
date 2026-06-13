@@ -11,6 +11,7 @@ SessionController
 ApiAuthFilter
   authenticates client, node, and admin callers by token
   enforces endpoint authorization by caller role
+  binds node callers to X-Node-Id for register and heartbeat
   requires tenant id for client session APIs
   applies Redis-backed per-tenant session-create rate limiting
 
@@ -162,15 +163,20 @@ CLIENT
   GET  /api/v1/capacity
 
 NODE
-  POST /api/v1/nodes/register
-  POST /api/v1/nodes/{id}/heartbeat
+  POST /api/v1/nodes/register            # request nodeId must equal X-Node-Id
+  POST /api/v1/nodes/{id}/heartbeat      # path nodeId must equal X-Node-Id
 
 ADMIN
   all API endpoints
 ```
 
-Clients must send `X-Tenant-Id`. Sessions store `tenantId`, idempotency keys are
-tenant-scoped, and non-admin reads hide sessions from other tenants.
+Clients must send `X-Tenant-Id`. Node callers must send `X-Node-Id`; the filter
+rejects heartbeat calls for a different path node id, and `NodeService` rejects
+registration or heartbeat for a different node id. Sessions store `tenantId`,
+idempotency keys are tenant-scoped, and non-admin reads hide sessions from other
+tenants. Static node tokens are still a demo credential shape; production should
+replace them with mTLS, signed JWT node identity, SPIFFE/SPIRE, or another
+rotatable per-node identity source.
 
 ## Event Persistence Failure Path
 

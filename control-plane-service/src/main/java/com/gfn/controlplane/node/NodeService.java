@@ -2,6 +2,8 @@ package com.gfn.controlplane.node;
 
 import com.gfn.controlplane.session.GpuProfile;
 import com.gfn.controlplane.session.Region;
+import com.gfn.controlplane.security.CallerContext;
+import com.gfn.controlplane.security.CallerRole;
 import com.gfn.controlplane.state.NodeSnapshot;
 import com.gfn.controlplane.state.RedisStateStore;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ public class NodeService {
     }
 
     public NodeResponse register(RegisterNodeRequest request) {
+        assertNodeIdentity(request.nodeId());
         GpuNode node = new GpuNode(request);
         stateStore.saveNode(toSnapshot(node));
         stateStore.setNodeAvailableSlots(node.nodeId(), node.availableSlots());
@@ -28,6 +31,7 @@ public class NodeService {
     }
 
     public NodeResponse heartbeat(String nodeId, HeartbeatRequest request) {
+        assertNodeIdentity(nodeId);
         GpuNode node = findById(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown node: " + nodeId));
         node.heartbeat(request);
@@ -98,5 +102,17 @@ public class NodeService {
                 node.lastHeartbeatAt(),
                 node.status()
         );
+    }
+
+    private void assertNodeIdentity(String nodeId) {
+        CallerContext caller;
+        try {
+            caller = CallerContext.get();
+        } catch (IllegalStateException ex) {
+            return;
+        }
+        if (caller.role() == CallerRole.NODE && !nodeId.equals(caller.nodeId())) {
+            throw new IllegalArgumentException("Node caller is not allowed to operate on node: " + nodeId);
+        }
     }
 }

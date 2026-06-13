@@ -42,11 +42,53 @@ class ApiAuthFilterTest {
     void nodeTokenCannotCreateSession() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/sessions");
         request.addHeader("X-Control-Plane-Token", "node-token");
+        request.addHeader("X-Node-Id", "node-1");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, mock(FilterChain.class));
 
         assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void nodeTokenRequiresNodeIdentityHeader() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/nodes/node-1/heartbeat");
+        request.addHeader("X-Control-Plane-Token", "node-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void nodeTokenCannotHeartbeatDifferentNodeId() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/nodes/node-2/heartbeat");
+        request.addHeader("X-Control-Plane-Token", "node-token");
+        request.addHeader("X-Node-Id", "node-1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void nodeTokenCanHeartbeatOwnNodeId() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/nodes/node-1/heartbeat");
+        request.addHeader("X-Control-Plane-Token", "node-token");
+        request.addHeader("X-Node-Id", "node-1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(chain).doFilter(any(), any());
     }
 
     @Test
@@ -62,4 +104,3 @@ class ApiAuthFilterTest {
         assertThat(response.getStatus()).isEqualTo(429);
     }
 }
-

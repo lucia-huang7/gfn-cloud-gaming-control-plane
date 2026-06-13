@@ -18,6 +18,7 @@ import java.time.Duration;
 public class ApiAuthFilter extends OncePerRequestFilter {
     private static final String TOKEN_HEADER = "X-Control-Plane-Token";
     private static final String TENANT_HEADER = "X-Tenant-Id";
+    private static final String NODE_HEADER = "X-Node-Id";
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
 
     private final RedisStateStore stateStore;
@@ -69,10 +70,14 @@ public class ApiAuthFilter extends OncePerRequestFilter {
             throw new AuthException(HttpServletResponse.SC_UNAUTHORIZED, "Missing " + TOKEN_HEADER);
         }
         if (matches(token, adminToken)) {
-            return new CallerContext(CallerRole.ADMIN, request.getHeader(TENANT_HEADER));
+            return new CallerContext(CallerRole.ADMIN, request.getHeader(TENANT_HEADER), request.getHeader(NODE_HEADER));
         }
         if (matches(token, nodeToken)) {
-            return new CallerContext(CallerRole.NODE, request.getHeader(TENANT_HEADER));
+            String nodeId = request.getHeader(NODE_HEADER);
+            if (nodeId == null || nodeId.isBlank()) {
+                throw new AuthException(HttpServletResponse.SC_UNAUTHORIZED, "Missing " + NODE_HEADER);
+            }
+            return new CallerContext(CallerRole.NODE, request.getHeader(TENANT_HEADER), nodeId);
         }
         if (matches(token, clientToken)) {
             String tenantId = request.getHeader(TENANT_HEADER);
@@ -91,7 +96,12 @@ public class ApiAuthFilter extends OncePerRequestFilter {
             return;
         }
         if (context.role() == CallerRole.NODE && method.equals("POST")
-                && (path.equals("/api/v1/nodes/register") || path.matches("/api/v1/nodes/[^/]+/heartbeat"))) {
+                && path.equals("/api/v1/nodes/register")) {
+            return;
+        }
+        if (context.role() == CallerRole.NODE && method.equals("POST")
+                && path.matches("/api/v1/nodes/[^/]+/heartbeat")
+                && context.nodeId().equals(pathNodeId(path))) {
             return;
         }
         if (context.role() == CallerRole.CLIENT
@@ -101,6 +111,12 @@ public class ApiAuthFilter extends OncePerRequestFilter {
             return;
         }
         throw new AuthException(HttpServletResponse.SC_FORBIDDEN, "Caller is not authorized for this endpoint");
+    }
+
+    private String pathNodeId(String path) {
+        String prefix = "/api/v1/nodes/";
+        String suffix = "/heartbeat";
+        return path.substring(prefix.length(), path.length() - suffix.length());
     }
 
     private void rateLimit(HttpServletRequest request, CallerContext context) {
