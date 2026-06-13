@@ -34,7 +34,8 @@ RedisStateStore
   stores session records
   claims idempotency keys with SET NX and a bounded TTL
   stores node registry and heartbeat snapshots
-  reads node capacity from Redis counters
+  keeps heartbeat snapshots separate from reservation capacity counters
+  reads schedulable node capacity from Redis counters
   stores session event dead letters when Cassandra writes fail
 
 QueueReconciler
@@ -276,6 +277,10 @@ queue drain    -> queue-claim:session:{sessionId}
 
 The service keeps no authoritative session, idempotency, or node registry state in
 process memory.
+
+Node heartbeat payloads update health and reported node snapshots only. They do
+not reset `node:{nodeId}:available_slots`; that counter is initialized on node
+registration and then changed only by reservation/release Lua scripts.
 
 Every pod can run reconciliation. Before retrying a queued session, the pod must
 claim `queue-claim:session:{sessionId}` with a short TTL and then re-read the

@@ -32,8 +32,7 @@ public class NodeService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown node: " + nodeId));
         node.heartbeat(request);
         stateStore.saveNode(toSnapshot(node));
-        stateStore.setNodeAvailableSlots(nodeId, node.availableSlots());
-        return NodeResponse.from(node);
+        return findById(nodeId).map(NodeResponse::from).orElseGet(() -> NodeResponse.from(node));
     }
 
     public List<GpuNode> findHealthyNodes(Region region, GpuProfile gpuProfile) {
