@@ -37,6 +37,6 @@ public class QueueReconciler {
                 sessionService.expire(session);
             }
         }
+        sessionService.drainQueuedSessions();
     }
 }
-

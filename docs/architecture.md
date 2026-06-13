@@ -34,6 +34,7 @@ QueueReconciler
   marks stale nodes
   expires old RESERVED sessions
   releases abandoned slots
+  drains QUEUED sessions in FIFO order
 
 Cassandra
   stores append-only session events
@@ -91,6 +92,10 @@ RESERVED -> TERMINATED
 RESERVED -> EXPIRED
 QUEUED -> TERMINATED
 ```
+
+Queued sessions keep the original placement request fields in Redis, including
+region, GPU profile, and max latency. The reconciler can retry placement without
+requiring another client request.
 
 ## Placement Score
 
@@ -174,6 +179,8 @@ Runs on a fixed delay:
 mark nodes STALE when last heartbeat is older than heartbeat-timeout
 expire RESERVED sessions older than reservation-ttl
 release slot for expired reservation
+retry QUEUED sessions in created_at order
+stop draining when the first queued session cannot be placed
 write terminal session event
 ```
 

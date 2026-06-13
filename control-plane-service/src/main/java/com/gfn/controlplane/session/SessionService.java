@@ -44,7 +44,14 @@ public class SessionService {
             return waitForClaimedSession(claim.sessionId());
         }
 
-        SessionRecord session = new SessionRecord(sessionId, request.userId(), request.gameId(), request.region(), request.gpuProfile());
+        SessionRecord session = new SessionRecord(
+                sessionId,
+                request.userId(),
+                request.gameId(),
+                request.region(),
+                request.gpuProfile(),
+                request.maxLatencyMs()
+        );
         stateStore.saveSession(toSnapshot(session));
 
         PlacementResult placement = placementService.place(sessionId, request);
@@ -120,6 +127,22 @@ public class SessionService {
                 .toList();
     }
 
+    public int drainQueuedSessions() {
+        int placed = 0;
+        for (SessionRecord session : queuedSessions()) {
+            PlacementResult placement = placementService.place(session.sessionId(), toPlacementRequest(session));
+            if (!placement.reserved()) {
+                break;
+            }
+            session.status(SessionStatus.RESERVED);
+            session.nodeId(placement.nodeId());
+            stateStore.saveSession(toSnapshot(session));
+            saveEvent(session, "QUEUE_PLACEMENT_RESERVED");
+            placed++;
+        }
+        return placed;
+    }
+
     public void expire(SessionRecord session) {
         if (session.nodeId() != null) {
             placementService.release(session.nodeId(), session.sessionId());
@@ -155,6 +178,7 @@ public class SessionService {
                 session.gameId(),
                 session.region(),
                 session.gpuProfile(),
+                session.maxLatencyMs(),
                 session.createdAt(),
                 session.status(),
                 session.nodeId()
@@ -168,11 +192,22 @@ public class SessionService {
                 snapshot.gameId(),
                 snapshot.region(),
                 snapshot.gpuProfile(),
+                snapshot.maxLatencyMs(),
                 snapshot.createdAt()
         );
         session.status(snapshot.status());
         session.nodeId(snapshot.nodeId());
         return session;
+    }
+
+    private CreateSessionRequest toPlacementRequest(SessionRecord session) {
+        return new CreateSessionRequest(
+                session.userId(),
+                session.gameId(),
+                session.region(),
+                session.gpuProfile(),
+                session.maxLatencyMs()
+        );
     }
 
 }

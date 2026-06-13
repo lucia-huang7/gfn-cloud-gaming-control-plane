@@ -12,9 +12,9 @@ public record SessionSnapshot(
         String gameId,
         Region region,
         GpuProfile gpuProfile,
+        int maxLatencyMs,
         Instant createdAt,
         SessionStatus status,
         String nodeId
 ) {
 }
-

@@ -8,20 +8,22 @@ public class SessionRecord {
     private final String gameId;
     private final Region region;
     private final GpuProfile gpuProfile;
+    private final int maxLatencyMs;
     private final Instant createdAt;
     private volatile SessionStatus status;
     private volatile String nodeId;
 
-    public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile) {
-        this(sessionId, userId, gameId, region, gpuProfile, Instant.now());
+    public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile, int maxLatencyMs) {
+        this(sessionId, userId, gameId, region, gpuProfile, maxLatencyMs, Instant.now());
     }
 
-    public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile, Instant createdAt) {
+    public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile, int maxLatencyMs, Instant createdAt) {
         this.sessionId = sessionId;
         this.userId = userId;
         this.gameId = gameId;
         this.region = region;
         this.gpuProfile = gpuProfile;
+        this.maxLatencyMs = maxLatencyMs;
         this.createdAt = createdAt;
         this.status = SessionStatus.QUEUED;
     }
@@ -44,6 +46,10 @@ public class SessionRecord {
 
     public GpuProfile gpuProfile() {
         return gpuProfile;
+    }
+
+    public int maxLatencyMs() {
+        return maxLatencyMs;
     }
 
     public Instant createdAt() {
