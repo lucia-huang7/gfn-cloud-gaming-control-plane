@@ -29,4 +29,4 @@ control-plane:
   reservation-ttl-seconds: 45
   reconcile-interval-ms: 5000
   heartbeat-timeout-seconds: 20
-
+  idempotency-claim-ttl-seconds: 600

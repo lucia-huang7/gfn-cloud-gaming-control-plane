@@ -25,7 +25,7 @@ RedisLeaseManager
 
 RedisStateStore
   stores session records
-  stores idempotency keys with SETNX
+  claims idempotency keys with SET NX and a bounded TTL
   stores node registry and heartbeat snapshots
   reads node capacity from Redis counters
 
@@ -49,7 +49,7 @@ SessionController
   |
   v
 SessionService
-  |-- Redis idempotency lookup / SETNX
+  |-- Redis idempotency claim with SET NX
   |-- create SessionRecord
   |
   v
@@ -119,6 +119,13 @@ state:node:{nodeId}                 # metadata and heartbeat snapshot
 node:{nodeId}:available_slots
 session:{sessionId}:lease
 ```
+
+## Idempotency
+
+`POST /api/v1/sessions` first claims `state:idempotency:{key}` with Redis
+`SET NX EX`. The winner owns session creation. Concurrent requests with the same
+key read the claimed session id and wait briefly for the session record to become
+visible instead of creating another session.
 
 Reservation Lua script:
 

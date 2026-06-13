@@ -4,46 +4,44 @@ import com.gfn.controlplane.persistence.SessionEvent;
 import com.gfn.controlplane.persistence.SessionEventRepository;
 import com.gfn.controlplane.placement.PlacementResult;
 import com.gfn.controlplane.placement.PlacementService;
+import com.gfn.controlplane.state.IdempotencyClaim;
 import com.gfn.controlplane.state.RedisStateStore;
 import com.gfn.controlplane.state.SessionSnapshot;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @Service
 public class SessionService {
+    private static final Duration IDEMPOTENCY_CLAIM_TTL = Duration.ofMinutes(10);
+    private static final int IDEMPOTENCY_WAIT_ATTEMPTS = 20;
+    private static final long IDEMPOTENCY_WAIT_MS = 25;
+
     private final PlacementService placementService;
     private final SessionEventRepository eventRepository;
     private final RedisStateStore stateStore;
+    private final Duration idempotencyClaimTtl;
 
     public SessionService(
             PlacementService placementService,
             SessionEventRepository eventRepository,
-            RedisStateStore stateStore) {
+            RedisStateStore stateStore,
+            @Value("${control-plane.idempotency-claim-ttl-seconds:600}") long idempotencyClaimTtlSeconds) {
         this.placementService = placementService;
         this.eventRepository = eventRepository;
         this.stateStore = stateStore;
+        this.idempotencyClaimTtl = Duration.ofSeconds(idempotencyClaimTtlSeconds);
     }
 
     public SessionResponse createSession(String idempotencyKey, CreateSessionRequest request) {
-        Optional<SessionResponse> existing = stateStore.getSessionIdForIdempotencyKey(idempotencyKey)
-                .flatMap(stateStore::findSession)
-                .map(this::fromSnapshot)
-                .map(this::toResponse);
-        if (existing.isPresent()) {
-            return existing.get();
-        }
-
         String sessionId = "sess_" + UUID.randomUUID();
-        if (!stateStore.putIdempotencyKeyIfAbsent(idempotencyKey, sessionId)) {
-            return stateStore.getSessionIdForIdempotencyKey(idempotencyKey)
-                    .flatMap(stateStore::findSession)
-                    .map(this::fromSnapshot)
-                    .map(this::toResponse)
-                    .orElseThrow(() -> new IllegalStateException("Idempotency key exists without a session record"));
+        IdempotencyClaim claim = stateStore.claimIdempotencyKey(idempotencyKey, sessionId, idempotencyClaimTtl);
+        if (!claim.claimed()) {
+            return waitForClaimedSession(claim.sessionId());
         }
 
         SessionRecord session = new SessionRecord(sessionId, request.userId(), request.gameId(), request.region(), request.gpuProfile());
@@ -61,6 +59,29 @@ public class SessionService {
         stateStore.saveSession(toSnapshot(session));
 
         return toResponse(session);
+    }
+
+    private SessionResponse waitForClaimedSession(String sessionId) {
+        for (int attempt = 0; attempt < IDEMPOTENCY_WAIT_ATTEMPTS; attempt++) {
+            SessionResponse response = stateStore.findSession(sessionId)
+                    .map(this::fromSnapshot)
+                    .map(this::toResponse)
+                    .orElse(null);
+            if (response != null) {
+                return response;
+            }
+            sleepBeforeRetry();
+        }
+        throw new IllegalStateException("Idempotency key is claimed but session is not visible yet: " + sessionId);
+    }
+
+    private void sleepBeforeRetry() {
+        try {
+            Thread.sleep(IDEMPOTENCY_WAIT_MS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for idempotent session", ex);
+        }
     }
 
     public SessionResponse getSession(String sessionId) {

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -30,12 +31,17 @@ public class RedisStateStore {
         return Optional.ofNullable(redisTemplate.opsForValue().get(IDEMPOTENCY_PREFIX + idempotencyKey));
     }
 
-    public void putIdempotencyKey(String idempotencyKey, String sessionId) {
-        redisTemplate.opsForValue().set(IDEMPOTENCY_PREFIX + idempotencyKey, sessionId);
-    }
-
-    public boolean putIdempotencyKeyIfAbsent(String idempotencyKey, String sessionId) {
-        return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(IDEMPOTENCY_PREFIX + idempotencyKey, sessionId));
+    public IdempotencyClaim claimIdempotencyKey(String idempotencyKey, String sessionId, Duration ttl) {
+        String key = IDEMPOTENCY_PREFIX + idempotencyKey;
+        boolean claimed = Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, sessionId, ttl));
+        if (claimed) {
+            return new IdempotencyClaim(true, sessionId);
+        }
+        String existingSessionId = redisTemplate.opsForValue().get(key);
+        if (existingSessionId == null) {
+            return claimIdempotencyKey(idempotencyKey, sessionId, ttl);
+        }
+        return new IdempotencyClaim(false, existingSessionId);
     }
 
     public void saveSession(SessionSnapshot session) {
