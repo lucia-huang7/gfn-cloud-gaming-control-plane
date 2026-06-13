@@ -29,6 +29,27 @@ public class GpuNode {
         this.status = NodeStatus.HEALTHY;
     }
 
+    public GpuNode(
+            String nodeId,
+            Region region,
+            GpuProfile gpuProfile,
+            int totalSlots,
+            int availableSlots,
+            int activeSessions,
+            int avgLatencyMs,
+            Instant lastHeartbeatAt,
+            NodeStatus status) {
+        this.nodeId = nodeId;
+        this.region = region;
+        this.gpuProfile = gpuProfile;
+        this.totalSlots = totalSlots;
+        this.avgLatencyMs = avgLatencyMs;
+        this.availableSlots = new AtomicInteger(availableSlots);
+        this.activeSessions = new AtomicInteger(activeSessions);
+        this.lastHeartbeatAt = lastHeartbeatAt;
+        this.status = status;
+    }
+
     public String nodeId() {
         return nodeId;
     }
@@ -94,4 +115,3 @@ public class GpuNode {
         status = NodeStatus.STALE;
     }
 }
-

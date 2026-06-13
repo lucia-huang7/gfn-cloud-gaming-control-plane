@@ -2,6 +2,8 @@ package com.gfn.controlplane.node;
 
 import com.gfn.controlplane.session.GpuProfile;
 import com.gfn.controlplane.session.Region;
+import com.gfn.controlplane.state.NodeSnapshot;
+import com.gfn.controlplane.state.RedisStateStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -9,29 +11,34 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class NodeService {
-    private final ConcurrentHashMap<String, GpuNode> nodes = new ConcurrentHashMap<>();
+    private final RedisStateStore stateStore;
+
+    public NodeService(RedisStateStore stateStore) {
+        this.stateStore = stateStore;
+    }
 
     public NodeResponse register(RegisterNodeRequest request) {
         GpuNode node = new GpuNode(request);
-        nodes.put(request.nodeId(), node);
+        stateStore.saveNode(toSnapshot(node));
+        stateStore.setNodeAvailableSlots(node.nodeId(), node.availableSlots());
         return NodeResponse.from(node);
     }
 
     public NodeResponse heartbeat(String nodeId, HeartbeatRequest request) {
-        GpuNode node = nodes.get(nodeId);
-        if (node == null) {
-            throw new IllegalArgumentException("Unknown node: " + nodeId);
-        }
+        GpuNode node = findById(nodeId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown node: " + nodeId));
         node.heartbeat(request);
+        stateStore.saveNode(toSnapshot(node));
+        stateStore.setNodeAvailableSlots(nodeId, node.availableSlots());
         return NodeResponse.from(node);
     }
 
     public List<GpuNode> findHealthyNodes(Region region, GpuProfile gpuProfile) {
-        return nodes.values().stream()
+        return stateStore.listNodes().stream()
+                .map(this::fromSnapshot)
                 .filter(node -> node.region() == region)
                 .filter(node -> node.gpuProfile().ordinal() >= gpuProfile.ordinal())
                 .filter(node -> node.status() == NodeStatus.HEALTHY)
@@ -41,18 +48,59 @@ public class NodeService {
     }
 
     public Optional<GpuNode> findById(String nodeId) {
-        return Optional.ofNullable(nodes.get(nodeId));
+        return stateStore.findNode(nodeId).map(this::fromSnapshot);
     }
 
     public List<NodeResponse> listNodes() {
-        return nodes.values().stream().map(NodeResponse::from).toList();
+        return stateStore.listNodes().stream().map(this::fromSnapshot).map(NodeResponse::from).toList();
+    }
+
+    public void markReserved(String nodeId) {
+        findById(nodeId).orElseThrow(() -> new IllegalArgumentException("Unknown node: " + nodeId));
+    }
+
+    public void markReleased(String nodeId) {
+        findById(nodeId);
     }
 
     public void markStaleNodes(Duration heartbeatTimeout) {
         Instant cutoff = Instant.now().minus(heartbeatTimeout);
-        nodes.values().stream()
+        stateStore.listNodes().stream()
+                .map(this::fromSnapshot)
                 .filter(node -> node.lastHeartbeatAt().isBefore(cutoff))
-                .forEach(GpuNode::markStale);
+                .forEach(node -> {
+                    node.markStale();
+                    stateStore.saveNode(toSnapshot(node));
+                });
+    }
+
+    private NodeSnapshot toSnapshot(GpuNode node) {
+        return new NodeSnapshot(
+                node.nodeId(),
+                node.region(),
+                node.gpuProfile(),
+                node.totalSlots(),
+                node.availableSlots(),
+                node.activeSessions(),
+                node.avgLatencyMs(),
+                node.lastHeartbeatAt(),
+                node.status()
+        );
+    }
+
+    private GpuNode fromSnapshot(NodeSnapshot node) {
+        int availableSlots = stateStore.getNodeAvailableSlots(node.nodeId()).orElse(node.availableSlots());
+        int activeSessions = Math.max(0, node.totalSlots() - availableSlots);
+        return new GpuNode(
+                node.nodeId(),
+                node.region(),
+                node.gpuProfile(),
+                node.totalSlots(),
+                availableSlots,
+                activeSessions,
+                node.avgLatencyMs(),
+                node.lastHeartbeatAt(),
+                node.status()
+        );
     }
 }
-

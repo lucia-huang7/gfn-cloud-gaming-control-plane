@@ -2,13 +2,11 @@ package com.gfn.controlplane.placement;
 
 import com.gfn.controlplane.node.GpuNode;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class RedisLeaseManager {
@@ -31,7 +29,6 @@ public class RedisLeaseManager {
 
     private final StringRedisTemplate redisTemplate;
     private final long ttlSeconds;
-    private final ConcurrentHashMap<String, String> localLeases = new ConcurrentHashMap<>();
 
     public RedisLeaseManager(
             StringRedisTemplate redisTemplate,
@@ -41,36 +38,19 @@ public class RedisLeaseManager {
     }
 
     public boolean tryReserve(GpuNode node, String sessionId) {
-        try {
-            Long reserved = redisTemplate.execute(
-                    new DefaultRedisScript<>(LUA_RESERVE, Long.class),
-                    List.of(capacityKey(node.nodeId()), leaseKey(sessionId)),
-                    String.valueOf(ttlSeconds),
-                    String.valueOf(node.availableSlots()),
-                    node.nodeId()
-            );
-            if (Long.valueOf(1L).equals(reserved)) {
-                return node.tryReserveLocalSlot();
-            }
-            return false;
-        } catch (RedisConnectionFailureException ex) {
-            boolean reserved = node.tryReserveLocalSlot();
-            if (reserved) {
-                localLeases.put(sessionId, node.nodeId());
-            }
-            return reserved;
-        }
+        Long reserved = redisTemplate.execute(
+                new DefaultRedisScript<>(LUA_RESERVE, Long.class),
+                List.of(capacityKey(node.nodeId()), leaseKey(sessionId)),
+                String.valueOf(ttlSeconds),
+                String.valueOf(node.availableSlots()),
+                node.nodeId()
+        );
+        return Long.valueOf(1L).equals(reserved);
     }
 
-    public void release(GpuNode node, String sessionId) {
-        node.releaseLocalSlot();
-        localLeases.remove(sessionId);
-        try {
-            redisTemplate.delete(leaseKey(sessionId));
-            redisTemplate.opsForValue().increment(capacityKey(node.nodeId()));
-        } catch (RedisConnectionFailureException ignored) {
-            // In local fallback mode the in-memory node count is the source of truth.
-        }
+    public void release(String nodeId, String sessionId) {
+        redisTemplate.delete(leaseKey(sessionId));
+        redisTemplate.opsForValue().increment(capacityKey(nodeId));
     }
 
     private String capacityKey(String nodeId) {

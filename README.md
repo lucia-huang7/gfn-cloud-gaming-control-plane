@@ -10,6 +10,7 @@ Independent educational project. Not affiliated with NVIDIA or GeForce NOW.
 - Java 17, Spring Boot 3
 - Spring Web, Validation, Actuator
 - Redis / Valkey for session leases and capacity counters
+- Redis-backed session, idempotency, and node registry state
 - Cassandra for session event history
 - Docker Compose, Kubernetes manifests
 - k6 load test
@@ -86,6 +87,7 @@ node/         GPU node registry and heartbeat state
 placement/   node scoring and Redis lease reservation
 queueing/    reservation expiry and stale-node reconciliation
 persistence/ Cassandra session event model
+state/       Redis-backed runtime state
 config/      API errors and Cassandra setup
 ```
 
@@ -104,4 +106,3 @@ docker run --rm \
 ```bash
 k6 run load-test/session-allocation.js
 ```
-

@@ -4,36 +4,50 @@ import com.gfn.controlplane.persistence.SessionEvent;
 import com.gfn.controlplane.persistence.SessionEventRepository;
 import com.gfn.controlplane.placement.PlacementResult;
 import com.gfn.controlplane.placement.PlacementService;
+import com.gfn.controlplane.state.RedisStateStore;
+import com.gfn.controlplane.state.SessionSnapshot;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class SessionService {
     private final PlacementService placementService;
     private final SessionEventRepository eventRepository;
-    private final Map<String, SessionRecord> sessions = new ConcurrentHashMap<>();
-    private final Map<String, String> idempotencyKeys = new ConcurrentHashMap<>();
+    private final RedisStateStore stateStore;
 
-    public SessionService(PlacementService placementService, SessionEventRepository eventRepository) {
+    public SessionService(
+            PlacementService placementService,
+            SessionEventRepository eventRepository,
+            RedisStateStore stateStore) {
         this.placementService = placementService;
         this.eventRepository = eventRepository;
+        this.stateStore = stateStore;
     }
 
     public SessionResponse createSession(String idempotencyKey, CreateSessionRequest request) {
-        String existingSessionId = idempotencyKeys.get(idempotencyKey);
-        if (existingSessionId != null) {
-            return toResponse(sessions.get(existingSessionId));
+        Optional<SessionResponse> existing = stateStore.getSessionIdForIdempotencyKey(idempotencyKey)
+                .flatMap(stateStore::findSession)
+                .map(this::fromSnapshot)
+                .map(this::toResponse);
+        if (existing.isPresent()) {
+            return existing.get();
         }
 
         String sessionId = "sess_" + UUID.randomUUID();
+        if (!stateStore.putIdempotencyKeyIfAbsent(idempotencyKey, sessionId)) {
+            return stateStore.getSessionIdForIdempotencyKey(idempotencyKey)
+                    .flatMap(stateStore::findSession)
+                    .map(this::fromSnapshot)
+                    .map(this::toResponse)
+                    .orElseThrow(() -> new IllegalStateException("Idempotency key exists without a session record"));
+        }
+
         SessionRecord session = new SessionRecord(sessionId, request.userId(), request.gameId(), request.region(), request.gpuProfile());
-        sessions.put(sessionId, session);
-        idempotencyKeys.put(idempotencyKey, sessionId);
+        stateStore.saveSession(toSnapshot(session));
 
         PlacementResult placement = placementService.place(sessionId, request);
         if (placement.reserved()) {
@@ -44,39 +58,43 @@ public class SessionService {
             session.status(SessionStatus.QUEUED);
             saveEvent(session, "SESSION_QUEUED");
         }
+        stateStore.saveSession(toSnapshot(session));
 
         return toResponse(session);
     }
 
     public SessionResponse getSession(String sessionId) {
-        SessionRecord session = sessions.get(sessionId);
-        if (session == null) {
-            throw new IllegalArgumentException("Unknown session: " + sessionId);
-        }
+        SessionRecord session = stateStore.findSession(sessionId)
+                .map(this::fromSnapshot)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown session: " + sessionId));
         return toResponse(session);
     }
 
     public void terminateSession(String sessionId) {
-        SessionRecord session = sessions.get(sessionId);
-        if (session == null) {
+        SessionRecord session = stateStore.findSession(sessionId).map(this::fromSnapshot).orElse(null);
+        if (session == null) return;
+        if (session.status() == SessionStatus.TERMINATED || session.status() == SessionStatus.EXPIRED) {
             return;
         }
         if (session.nodeId() != null) {
             placementService.release(session.nodeId(), session.sessionId());
         }
         session.status(SessionStatus.TERMINATED);
+        stateStore.saveSession(toSnapshot(session));
         saveEvent(session, "SESSION_TERMINATED");
     }
 
     public List<SessionRecord> queuedSessions() {
-        return sessions.values().stream()
+        return stateStore.listSessions().stream()
+                .map(this::fromSnapshot)
                 .filter(session -> session.status() == SessionStatus.QUEUED)
                 .sorted(Comparator.comparing(SessionRecord::createdAt))
                 .toList();
     }
 
     public List<SessionRecord> activeReservations() {
-        return sessions.values().stream()
+        return stateStore.listSessions().stream()
+                .map(this::fromSnapshot)
                 .filter(session -> session.status() == SessionStatus.RESERVED)
                 .toList();
     }
@@ -86,6 +104,7 @@ public class SessionService {
             placementService.release(session.nodeId(), session.sessionId());
         }
         session.status(SessionStatus.EXPIRED);
+        stateStore.saveSession(toSnapshot(session));
         saveEvent(session, "SESSION_EXPIRED");
     }
 
@@ -107,5 +126,32 @@ public class SessionService {
             // Cassandra is optional for local API exploration; Docker Compose enables persistence.
         }
     }
-}
 
+    private SessionSnapshot toSnapshot(SessionRecord session) {
+        return new SessionSnapshot(
+                session.sessionId(),
+                session.userId(),
+                session.gameId(),
+                session.region(),
+                session.gpuProfile(),
+                session.createdAt(),
+                session.status(),
+                session.nodeId()
+        );
+    }
+
+    private SessionRecord fromSnapshot(SessionSnapshot snapshot) {
+        SessionRecord session = new SessionRecord(
+                snapshot.sessionId(),
+                snapshot.userId(),
+                snapshot.gameId(),
+                snapshot.region(),
+                snapshot.gpuProfile(),
+                snapshot.createdAt()
+        );
+        session.status(snapshot.status());
+        session.nodeId(snapshot.nodeId());
+        return session;
+    }
+
+}

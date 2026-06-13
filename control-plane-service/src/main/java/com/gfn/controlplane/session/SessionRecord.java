@@ -13,12 +13,16 @@ public class SessionRecord {
     private volatile String nodeId;
 
     public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile) {
+        this(sessionId, userId, gameId, region, gpuProfile, Instant.now());
+    }
+
+    public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile, Instant createdAt) {
         this.sessionId = sessionId;
         this.userId = userId;
         this.gameId = gameId;
         this.region = region;
         this.gpuProfile = gpuProfile;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;
         this.status = SessionStatus.QUEUED;
     }
 
@@ -66,4 +70,3 @@ public class SessionRecord {
         return new SessionResponse(sessionId, status, region, gpuProfile, nodeId, queuePosition, estimatedWaitSeconds, createdAt);
     }
 }
-

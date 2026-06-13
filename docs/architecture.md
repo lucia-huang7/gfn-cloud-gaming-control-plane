@@ -23,6 +23,12 @@ RedisLeaseManager
   writes session lease keys with TTL
   uses Lua for check/decrement/lease as one Redis operation
 
+RedisStateStore
+  stores session records
+  stores idempotency keys with SETNX
+  stores node registry and heartbeat snapshots
+  reads node capacity from Redis counters
+
 QueueReconciler
   marks stale nodes
   expires old RESERVED sessions
@@ -43,7 +49,7 @@ SessionController
   |
   v
 SessionService
-  |-- idempotency lookup
+  |-- Redis idempotency lookup / SETNX
   |-- create SessionRecord
   |
   v
@@ -107,6 +113,9 @@ node.availableSlots > 0
 ## Redis Keys
 
 ```text
+state:session:{sessionId}
+state:idempotency:{idempotencyKey}
+state:node:{nodeId}                 # metadata and heartbeat snapshot
 node:{nodeId}:available_slots
 session:{sessionId}:lease
 ```
@@ -152,3 +161,17 @@ release slot for expired reservation
 write terminal session event
 ```
 
+## Replica Safety
+
+The control plane deployment uses two replicas. Runtime control-plane state is
+shared through Redis:
+
+```text
+sessions       -> state:session:{sessionId}
+idempotency    -> state:idempotency:{idempotencyKey}
+node registry  -> state:node:{nodeId}
+capacity lease -> node:{nodeId}:available_slots and session:{sessionId}:lease
+```
+
+The service keeps no authoritative session, idempotency, or node registry state in
+process memory.
