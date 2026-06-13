@@ -115,6 +115,11 @@ docker run --rm \
   mvn test
 ```
 
+Current test coverage includes placement scoring, latency SLA filtering, Redis
+lease accounting, idempotency, queue draining, caller authorization, tenant
+isolation, controller validation, Cassandra dead-letter fallback, and replica
+safety checks against local authoritative maps.
+
 ## Load Test
 
 ```bash
