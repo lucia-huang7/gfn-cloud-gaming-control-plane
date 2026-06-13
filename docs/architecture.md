@@ -266,8 +266,10 @@ shared through Redis:
 
 ```text
 sessions       -> state:session:{sessionId}
+session index  -> state:sessions
 idempotency    -> state:idempotency:{idempotencyKey}
 node registry  -> state:node:{nodeId}
+node index     -> state:nodes
 capacity lease -> node:{nodeId}:available_slots and session:{sessionId}:lease
 queue drain    -> queue-claim:session:{sessionId}
 ```
@@ -280,3 +282,6 @@ claim `queue-claim:session:{sessionId}` with a short TTL and then re-read the
 session. The reservation Lua script also checks whether
 `session:{sessionId}:lease` already exists before decrementing capacity, so a
 duplicate drain attempt cannot reserve the same session twice.
+
+Session and node enumeration never uses Redis `KEYS`; writes maintain secondary
+sets and readers page through those sets with `SSCAN`.

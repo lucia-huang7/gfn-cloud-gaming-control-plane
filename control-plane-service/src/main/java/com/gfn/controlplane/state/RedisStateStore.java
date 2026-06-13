@@ -3,25 +3,29 @@ package com.gfn.controlplane.state;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gfn.controlplane.persistence.SessionEvent;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 @Component
 public class RedisStateStore {
     private static final String SESSION_PREFIX = "state:session:";
+    private static final String SESSION_INDEX = "state:sessions";
     private static final String IDEMPOTENCY_PREFIX = "state:idempotency:";
     private static final String QUEUE_CLAIM_PREFIX = "queue-claim:session:";
     private static final String NODE_PREFIX = "state:node:";
+    private static final String NODE_INDEX = "state:nodes";
     private static final String SESSION_EVENT_DEAD_LETTER_PREFIX = "deadletter:session-event:";
     private static final String RATE_LIMIT_PREFIX = "rate-limit:";
     private static final String NODE_CAPACITY_PREFIX = "node:";
@@ -54,6 +58,7 @@ public class RedisStateStore {
 
     public void saveSession(SessionSnapshot session) {
         writeJson(SESSION_PREFIX + session.sessionId(), session);
+        redisTemplate.opsForSet().add(SESSION_INDEX, session.sessionId());
     }
 
     public Optional<SessionSnapshot> findSession(String sessionId) {
@@ -61,7 +66,7 @@ public class RedisStateStore {
     }
 
     public List<SessionSnapshot> listSessions() {
-        return scanJson(SESSION_PREFIX + "*", SessionSnapshot.class);
+        return scanIndexedJson(SESSION_INDEX, SESSION_PREFIX, SessionSnapshot.class);
     }
 
     public boolean claimQueuedSession(String sessionId, Duration ttl) {
@@ -74,6 +79,7 @@ public class RedisStateStore {
 
     public void saveNode(NodeSnapshot node) {
         writeJson(NODE_PREFIX + node.nodeId(), node);
+        redisTemplate.opsForSet().add(NODE_INDEX, node.nodeId());
     }
 
     public void setNodeAvailableSlots(String nodeId, int availableSlots) {
@@ -89,7 +95,7 @@ public class RedisStateStore {
     }
 
     public List<NodeSnapshot> listNodes() {
-        return scanJson(NODE_PREFIX + "*", NodeSnapshot.class);
+        return scanIndexedJson(NODE_INDEX, NODE_PREFIX, NodeSnapshot.class);
     }
 
     public void deadLetterSessionEvent(SessionEvent event, RuntimeException failure) {
@@ -136,15 +142,20 @@ public class RedisStateStore {
         }
     }
 
-    private <T> List<T> scanJson(String pattern, Class<T> type) {
-        Set<String> keys = redisTemplate.keys(pattern);
-        if (keys == null || keys.isEmpty()) {
-            return List.of();
-        }
-        return keys.stream()
-                .map(key -> readJson(key, type).orElse(null))
+    private <T> List<T> scanIndexedJson(String indexKey, String valuePrefix, Class<T> type) {
+        return scanSet(indexKey).stream()
+                .map(id -> readJson(valuePrefix + id, type).orElse(null))
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    private List<String> scanSet(String key) {
+        ScanOptions options = ScanOptions.scanOptions().count(500).build();
+        List<String> values = new ArrayList<>();
+        try (Cursor<String> cursor = Objects.requireNonNull(redisTemplate.opsForSet().scan(key, options))) {
+            cursor.forEachRemaining(values::add);
+        }
+        return values;
     }
 
     private String capacityKey(String nodeId) {

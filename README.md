@@ -118,7 +118,8 @@ docker run --rm \
 Current test coverage includes placement scoring, latency SLA filtering, Redis
 lease accounting, idempotency, multi-replica queue drain claims, caller
 authorization, tenant isolation, controller validation, Cassandra dead-letter
-fallback, and replica safety checks against local authoritative maps.
+fallback, Redis secondary-index scans, and replica safety checks against local
+authoritative maps.
 
 ## Load Test
 
