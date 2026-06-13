@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record SessionResponse(
         String sessionId,
+        String tenantId,
         SessionStatus status,
         Region region,
         GpuProfile gpuProfile,
@@ -13,4 +14,3 @@ public record SessionResponse(
         Instant createdAt
 ) {
 }
-

@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public class SessionRecord {
     private final String sessionId;
+    private final String tenantId;
     private final String userId;
     private final String gameId;
     private final Region region;
@@ -13,12 +14,13 @@ public class SessionRecord {
     private volatile SessionStatus status;
     private volatile String nodeId;
 
-    public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile, int maxLatencyMs) {
-        this(sessionId, userId, gameId, region, gpuProfile, maxLatencyMs, Instant.now());
+    public SessionRecord(String sessionId, String tenantId, String userId, String gameId, Region region, GpuProfile gpuProfile, int maxLatencyMs) {
+        this(sessionId, tenantId, userId, gameId, region, gpuProfile, maxLatencyMs, Instant.now());
     }
 
-    public SessionRecord(String sessionId, String userId, String gameId, Region region, GpuProfile gpuProfile, int maxLatencyMs, Instant createdAt) {
+    public SessionRecord(String sessionId, String tenantId, String userId, String gameId, Region region, GpuProfile gpuProfile, int maxLatencyMs, Instant createdAt) {
         this.sessionId = sessionId;
+        this.tenantId = tenantId;
         this.userId = userId;
         this.gameId = gameId;
         this.region = region;
@@ -30,6 +32,10 @@ public class SessionRecord {
 
     public String sessionId() {
         return sessionId;
+    }
+
+    public String tenantId() {
+        return tenantId;
     }
 
     public String userId() {
@@ -73,6 +79,6 @@ public class SessionRecord {
     }
 
     public SessionResponse toResponse(Integer queuePosition, Integer estimatedWaitSeconds) {
-        return new SessionResponse(sessionId, status, region, gpuProfile, nodeId, queuePosition, estimatedWaitSeconds, createdAt);
+        return new SessionResponse(sessionId, tenantId, status, region, gpuProfile, nodeId, queuePosition, estimatedWaitSeconds, createdAt);
     }
 }

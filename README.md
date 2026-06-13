@@ -40,6 +40,7 @@ Register a GPU node:
 ```bash
 curl -X POST http://localhost:8080/api/v1/nodes/register \
   -H 'Content-Type: application/json' \
+  -H 'X-Control-Plane-Token: dev-node-token' \
   -d '{"nodeId":"us-west-a10g-1","region":"US_WEST","gpuProfile":"ULTRA","totalSlots":4,"avgLatencyMs":24}'
 ```
 
@@ -48,9 +49,22 @@ Create a session:
 ```bash
 curl -X POST http://localhost:8080/api/v1/sessions \
   -H 'Content-Type: application/json' \
+  -H 'X-Control-Plane-Token: dev-client-token' \
+  -H 'X-Tenant-Id: tenant-a' \
   -H 'Idempotency-Key: demo-001' \
   -d '{"userId":"user_123","gameId":"cyberpunk2077","region":"US_WEST","gpuProfile":"ULTRA","maxLatencyMs":45}'
 ```
+
+## Caller Model
+
+```text
+client token -> create/read own tenant sessions, read capacity
+node token   -> register nodes and send heartbeats
+admin token  -> all endpoints, including terminate and node inventory
+```
+
+Client requests must include `X-Tenant-Id`. Idempotency keys are scoped by tenant,
+and session reads are tenant-checked unless the caller is admin.
 
 ## Endpoints
 

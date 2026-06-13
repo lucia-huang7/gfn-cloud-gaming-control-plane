@@ -8,6 +8,12 @@ SessionController
   GET /api/v1/sessions/{id}
   DELETE /api/v1/sessions/{id}
 
+ApiAuthFilter
+  authenticates client, node, and admin callers by token
+  enforces endpoint authorization by caller role
+  requires tenant id for client session APIs
+  applies Redis-backed per-tenant session-create rate limiting
+
 NodeController
   POST /api/v1/nodes/register
   POST /api/v1/nodes/{id}/heartbeat
@@ -137,12 +143,32 @@ the SLA.
 
 ```text
 state:session:{sessionId}
-state:idempotency:{idempotencyKey}
+state:idempotency:{tenantId}:{idempotencyKey}
 state:node:{nodeId}                 # metadata and heartbeat snapshot
 deadletter:session-event:{uuid}
+rate-limit:client-create-session:{tenantId}
 node:{nodeId}:available_slots
 session:{sessionId}:lease
 ```
+
+## Caller Model
+
+```text
+CLIENT
+  POST /api/v1/sessions
+  GET  /api/v1/sessions/{id}
+  GET  /api/v1/capacity
+
+NODE
+  POST /api/v1/nodes/register
+  POST /api/v1/nodes/{id}/heartbeat
+
+ADMIN
+  all API endpoints
+```
+
+Clients must send `X-Tenant-Id`. Sessions store `tenantId`, idempotency keys are
+tenant-scoped, and non-admin reads hide sessions from other tenants.
 
 ## Event Persistence Failure Path
 

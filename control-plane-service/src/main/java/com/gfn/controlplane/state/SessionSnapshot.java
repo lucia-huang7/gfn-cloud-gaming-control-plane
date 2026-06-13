@@ -8,6 +8,7 @@ import java.time.Instant;
 
 public record SessionSnapshot(
         String sessionId,
+        String tenantId,
         String userId,
         String gameId,
         Region region,

@@ -35,6 +35,9 @@ Secrets should be injected through a real secret manager:
 CASSANDRA_USERNAME
 CASSANDRA_PASSWORD
 REDIS_PASSWORD
+CONTROL_PLANE_CLIENT_TOKEN
+CONTROL_PLANE_NODE_TOKEN
+CONTROL_PLANE_ADMIN_TOKEN
 ```
 
 The Spring Boot configuration wires those credentials into Redis/Cassandra

@@ -3,6 +3,7 @@ package com.gfn.controlplane.session;
 import com.gfn.controlplane.events.SessionEventPublisher;
 import com.gfn.controlplane.placement.PlacementResult;
 import com.gfn.controlplane.placement.PlacementService;
+import com.gfn.controlplane.security.CallerContext;
 import com.gfn.controlplane.state.IdempotencyClaim;
 import com.gfn.controlplane.state.RedisStateStore;
 import com.gfn.controlplane.state.SessionSnapshot;
@@ -37,14 +38,19 @@ public class SessionService {
     }
 
     public SessionResponse createSession(String idempotencyKey, CreateSessionRequest request) {
+        CallerContext caller = CallerContext.get();
+        if (caller.tenantId() == null || caller.tenantId().isBlank()) {
+            throw new IllegalArgumentException("Tenant id is required to create a session");
+        }
         String sessionId = "sess_" + UUID.randomUUID();
-        IdempotencyClaim claim = stateStore.claimIdempotencyKey(idempotencyKey, sessionId, idempotencyClaimTtl);
+        IdempotencyClaim claim = stateStore.claimIdempotencyKey(caller.tenantId() + ":" + idempotencyKey, sessionId, idempotencyClaimTtl);
         if (!claim.claimed()) {
             return waitForClaimedSession(claim.sessionId());
         }
 
         SessionRecord session = new SessionRecord(
                 sessionId,
+                caller.tenantId(),
                 request.userId(),
                 request.gameId(),
                 request.region(),
@@ -94,12 +100,14 @@ public class SessionService {
         SessionRecord session = stateStore.findSession(sessionId)
                 .map(this::fromSnapshot)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown session: " + sessionId));
+        assertTenantAccess(session);
         return toResponse(session);
     }
 
     public void terminateSession(String sessionId) {
         SessionRecord session = stateStore.findSession(sessionId).map(this::fromSnapshot).orElse(null);
         if (session == null) return;
+        assertTenantAccess(session);
         if (session.status() == SessionStatus.TERMINATED || session.status() == SessionStatus.EXPIRED) {
             return;
         }
@@ -169,6 +177,7 @@ public class SessionService {
     private SessionSnapshot toSnapshot(SessionRecord session) {
         return new SessionSnapshot(
                 session.sessionId(),
+                session.tenantId(),
                 session.userId(),
                 session.gameId(),
                 session.region(),
@@ -183,6 +192,7 @@ public class SessionService {
     private SessionRecord fromSnapshot(SessionSnapshot snapshot) {
         SessionRecord session = new SessionRecord(
                 snapshot.sessionId(),
+                snapshot.tenantId(),
                 snapshot.userId(),
                 snapshot.gameId(),
                 snapshot.region(),
@@ -203,6 +213,13 @@ public class SessionService {
                 session.gpuProfile(),
                 session.maxLatencyMs()
         );
+    }
+
+    private void assertTenantAccess(SessionRecord session) {
+        CallerContext caller = CallerContext.get();
+        if (!caller.isAdmin() && !session.tenantId().equals(caller.tenantId())) {
+            throw new IllegalArgumentException("Unknown session: " + session.sessionId());
+        }
     }
 
 }

@@ -22,6 +22,7 @@ public class RedisStateStore {
     private static final String IDEMPOTENCY_PREFIX = "state:idempotency:";
     private static final String NODE_PREFIX = "state:node:";
     private static final String SESSION_EVENT_DEAD_LETTER_PREFIX = "deadletter:session-event:";
+    private static final String RATE_LIMIT_PREFIX = "rate-limit:";
     private static final String NODE_CAPACITY_PREFIX = "node:";
     private static final String NODE_CAPACITY_SUFFIX = ":available_slots";
 
@@ -95,6 +96,15 @@ public class RedisStateStore {
         payload.put("failureType", failure.getClass().getName());
         payload.put("failureMessage", failure.getMessage());
         writeJson(SESSION_EVENT_DEAD_LETTER_PREFIX + UUID.randomUUID(), payload);
+    }
+
+    public long incrementRateLimit(String key, Duration ttl) {
+        String redisKey = RATE_LIMIT_PREFIX + key;
+        Long value = redisTemplate.opsForValue().increment(redisKey);
+        if (value != null && value == 1L) {
+            redisTemplate.expire(redisKey, ttl);
+        }
+        return value == null ? 0 : value;
     }
 
     private void writeJson(String key, Object value) {

@@ -43,6 +43,7 @@ class SessionEventPublisherTest {
         SessionEventPublisher publisher = new SessionEventPublisher(repository, stateStore, new SimpleMeterRegistry());
         SessionRecord session = new SessionRecord(
                 "sess_1",
+                "tenant_a",
                 "user_123",
                 "cyberpunk2077",
                 Region.US_WEST,
