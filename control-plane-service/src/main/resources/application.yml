@@ -29,10 +29,10 @@ management:
         enabled: true
 
 control-plane:
-  reservation-ttl-seconds: 45
-  reconcile-interval-ms: 5000
-  heartbeat-timeout-seconds: 20
-  idempotency-claim-ttl-seconds: 600
+  reservation-ttl-seconds: ${CONTROL_PLANE_RESERVATION_TTL_SECONDS:45}
+  reconcile-interval-ms: ${CONTROL_PLANE_RECONCILE_INTERVAL_MS:5000}
+  heartbeat-timeout-seconds: ${CONTROL_PLANE_HEARTBEAT_TIMEOUT_SECONDS:20}
+  idempotency-claim-ttl-seconds: ${CONTROL_PLANE_IDEMPOTENCY_CLAIM_TTL_SECONDS:600}
   queue-claim-ttl-seconds: ${CONTROL_PLANE_QUEUE_CLAIM_TTL_SECONDS:30}
   auth:
     client-token: ${CONTROL_PLANE_CLIENT_TOKEN:dev-client-token}
