@@ -33,6 +33,7 @@ control-plane:
   reconcile-interval-ms: 5000
   heartbeat-timeout-seconds: 20
   idempotency-claim-ttl-seconds: 600
+  queue-claim-ttl-seconds: ${CONTROL_PLANE_QUEUE_CLAIM_TTL_SECONDS:30}
   auth:
     client-token: ${CONTROL_PLANE_CLIENT_TOKEN:dev-client-token}
     node-token: ${CONTROL_PLANE_NODE_TOKEN:dev-node-token}

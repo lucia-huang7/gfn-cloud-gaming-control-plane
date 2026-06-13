@@ -75,6 +75,7 @@ PlacementService
   |
   v
 RedisLeaseManager
+  |-- reject existing session lease
   |-- DECR node capacity
   |-- SET session lease EX ttl
   |
@@ -253,6 +254,7 @@ mark nodes STALE when last heartbeat is older than heartbeat-timeout
 expire RESERVED sessions older than reservation-ttl
 release slot for expired reservation
 retry QUEUED sessions in created_at order
+claim each queued session through Redis SET NX before retry
 stop draining when the first queued session cannot be placed
 write terminal session event
 ```
@@ -267,7 +269,14 @@ sessions       -> state:session:{sessionId}
 idempotency    -> state:idempotency:{idempotencyKey}
 node registry  -> state:node:{nodeId}
 capacity lease -> node:{nodeId}:available_slots and session:{sessionId}:lease
+queue drain    -> queue-claim:session:{sessionId}
 ```
 
 The service keeps no authoritative session, idempotency, or node registry state in
 process memory.
+
+Every pod can run reconciliation. Before retrying a queued session, the pod must
+claim `queue-claim:session:{sessionId}` with a short TTL and then re-read the
+session. The reservation Lua script also checks whether
+`session:{sessionId}:lease` already exists before decrementing capacity, so a
+duplicate drain attempt cannot reserve the same session twice.

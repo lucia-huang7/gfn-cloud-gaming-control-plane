@@ -25,16 +25,19 @@ public class SessionService {
     private final SessionEventPublisher eventPublisher;
     private final RedisStateStore stateStore;
     private final Duration idempotencyClaimTtl;
+    private final Duration queueClaimTtl;
 
     public SessionService(
             PlacementService placementService,
             SessionEventPublisher eventPublisher,
             RedisStateStore stateStore,
-            @Value("${control-plane.idempotency-claim-ttl-seconds:600}") long idempotencyClaimTtlSeconds) {
+            @Value("${control-plane.idempotency-claim-ttl-seconds:600}") long idempotencyClaimTtlSeconds,
+            @Value("${control-plane.queue-claim-ttl-seconds:30}") long queueClaimTtlSeconds) {
         this.placementService = placementService;
         this.eventPublisher = eventPublisher;
         this.stateStore = stateStore;
         this.idempotencyClaimTtl = Duration.ofSeconds(idempotencyClaimTtlSeconds);
+        this.queueClaimTtl = Duration.ofSeconds(queueClaimTtlSeconds);
     }
 
     public SessionResponse createSession(String idempotencyKey, CreateSessionRequest request) {
@@ -137,15 +140,29 @@ public class SessionService {
     public int drainQueuedSessions() {
         int placed = 0;
         for (SessionRecord session : queuedSessions()) {
-            PlacementResult placement = placementService.place(session.sessionId(), toPlacementRequest(session));
-            if (!placement.reserved()) {
-                break;
+            if (!stateStore.claimQueuedSession(session.sessionId(), queueClaimTtl)) {
+                continue;
             }
-            session.status(SessionStatus.RESERVED);
-            session.nodeId(placement.nodeId());
-            stateStore.saveSession(toSnapshot(session));
-            saveEvent(session, "QUEUE_PLACEMENT_RESERVED");
-            placed++;
+            try {
+                SessionRecord current = stateStore.findSession(session.sessionId())
+                        .map(this::fromSnapshot)
+                        .orElse(null);
+                if (current == null || current.status() != SessionStatus.QUEUED) {
+                    continue;
+                }
+
+                PlacementResult placement = placementService.place(current.sessionId(), toPlacementRequest(current));
+                if (!placement.reserved()) {
+                    break;
+                }
+                current.status(SessionStatus.RESERVED);
+                current.nodeId(placement.nodeId());
+                stateStore.saveSession(toSnapshot(current));
+                saveEvent(current, "QUEUE_PLACEMENT_RESERVED");
+                placed++;
+            } finally {
+                stateStore.releaseQueuedSessionClaim(session.sessionId());
+            }
         }
         return placed;
     }

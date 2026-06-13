@@ -20,6 +20,7 @@ import java.util.UUID;
 public class RedisStateStore {
     private static final String SESSION_PREFIX = "state:session:";
     private static final String IDEMPOTENCY_PREFIX = "state:idempotency:";
+    private static final String QUEUE_CLAIM_PREFIX = "queue-claim:session:";
     private static final String NODE_PREFIX = "state:node:";
     private static final String SESSION_EVENT_DEAD_LETTER_PREFIX = "deadletter:session-event:";
     private static final String RATE_LIMIT_PREFIX = "rate-limit:";
@@ -61,6 +62,14 @@ public class RedisStateStore {
 
     public List<SessionSnapshot> listSessions() {
         return scanJson(SESSION_PREFIX + "*", SessionSnapshot.class);
+    }
+
+    public boolean claimQueuedSession(String sessionId, Duration ttl) {
+        return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(QUEUE_CLAIM_PREFIX + sessionId, "claimed", ttl));
+    }
+
+    public void releaseQueuedSessionClaim(String sessionId) {
+        redisTemplate.delete(QUEUE_CLAIM_PREFIX + sessionId);
     }
 
     public void saveNode(NodeSnapshot node) {

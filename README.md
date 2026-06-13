@@ -88,7 +88,7 @@ GET    /actuator/prometheus
 POST /sessions
   -> SessionService checks Idempotency-Key
   -> PlacementService ranks healthy GPU nodes
-  -> RedisLeaseManager reserves one slot atomically
+  -> RedisLeaseManager reserves one slot atomically and rejects duplicate leases
   -> Session is RESERVED or QUEUED
   -> SessionEvent is written to Cassandra
 ```
@@ -116,9 +116,9 @@ docker run --rm \
 ```
 
 Current test coverage includes placement scoring, latency SLA filtering, Redis
-lease accounting, idempotency, queue draining, caller authorization, tenant
-isolation, controller validation, Cassandra dead-letter fallback, and replica
-safety checks against local authoritative maps.
+lease accounting, idempotency, multi-replica queue drain claims, caller
+authorization, tenant isolation, controller validation, Cassandra dead-letter
+fallback, and replica safety checks against local authoritative maps.
 
 ## Load Test
 

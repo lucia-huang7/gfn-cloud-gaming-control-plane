@@ -14,6 +14,9 @@ public class RedisLeaseManager {
             local capacityKey = KEYS[1]
             local leaseKey = KEYS[2]
             local ttlSeconds = tonumber(ARGV[1])
+            if redis.call('EXISTS', leaseKey) == 1 then
+              return 0
+            end
             local capacity = tonumber(redis.call('GET', capacityKey) or '-1')
             if capacity < 0 then
               redis.call('SET', capacityKey, ARGV[2])

@@ -24,13 +24,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SessionServiceTest {
     private final PlacementService placementService = mock(PlacementService.class);
     private final SessionEventPublisher eventPublisher = mock(SessionEventPublisher.class);
     private final RedisStateStore stateStore = mock(RedisStateStore.class);
-    private final SessionService service = new SessionService(placementService, eventPublisher, stateStore, 600);
+    private final SessionService service = new SessionService(placementService, eventPublisher, stateStore, 600, 30);
 
     @AfterEach
     void clearCaller() {
@@ -76,6 +77,8 @@ class SessionServiceTest {
                 null
         );
         when(stateStore.listSessions()).thenReturn(List.of(queued));
+        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(true);
+        when(stateStore.findSession("sess-q")).thenReturn(Optional.of(queued));
         when(placementService.place(eq("sess-q"), any(CreateSessionRequest.class)))
                 .thenReturn(PlacementResult.reserved("sess-q", "node-1"));
 
@@ -86,6 +89,35 @@ class SessionServiceTest {
         verify(stateStore).saveSession(saved.capture());
         assertThat(saved.getValue().status()).isEqualTo(SessionStatus.RESERVED);
         assertThat(saved.getValue().nodeId()).isEqualTo("node-1");
+        verify(stateStore).releaseQueuedSessionClaim("sess-q");
+    }
+
+    @Test
+    void skipsQueuedSessionClaimedByAnotherReplica() {
+        SessionSnapshot queued = queuedSnapshot("sess-q");
+        when(stateStore.listSessions()).thenReturn(List.of(queued));
+        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(false);
+
+        int drained = service.drainQueuedSessions();
+
+        assertThat(drained).isZero();
+        verifyNoInteractions(placementService);
+        verify(stateStore, never()).saveSession(any(SessionSnapshot.class));
+    }
+
+    @Test
+    void reReadsQueuedSessionAfterClaimBeforePlacement() {
+        SessionSnapshot queued = queuedSnapshot("sess-q");
+        SessionSnapshot alreadyReserved = reservedSnapshot("sess-q", "tenant-a");
+        when(stateStore.listSessions()).thenReturn(List.of(queued));
+        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(true);
+        when(stateStore.findSession("sess-q")).thenReturn(Optional.of(alreadyReserved));
+
+        int drained = service.drainQueuedSessions();
+
+        assertThat(drained).isZero();
+        verifyNoInteractions(placementService);
+        verify(stateStore).releaseQueuedSessionClaim("sess-q");
     }
 
     private CreateSessionRequest request() {
@@ -106,5 +138,19 @@ class SessionServiceTest {
                 "node-1"
         );
     }
-}
 
+    private SessionSnapshot queuedSnapshot(String sessionId) {
+        return new SessionSnapshot(
+                sessionId,
+                "tenant-a",
+                "user_123",
+                "cyberpunk2077",
+                Region.US_WEST,
+                GpuProfile.ULTRA,
+                45,
+                Instant.now(),
+                SessionStatus.QUEUED,
+                null
+        );
+    }
+}
