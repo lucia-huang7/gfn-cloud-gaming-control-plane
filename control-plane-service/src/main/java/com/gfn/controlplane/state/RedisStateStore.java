@@ -40,20 +40,25 @@ public class RedisStateStore {
     }
 
     public Optional<String> getSessionIdForIdempotencyKey(String idempotencyKey) {
-        return Optional.ofNullable(redisTemplate.opsForValue().get(IDEMPOTENCY_PREFIX + idempotencyKey));
+        return Optional.ofNullable(readIdempotencyValue(IDEMPOTENCY_PREFIX + idempotencyKey))
+                .map(IdempotencyValue::sessionId);
     }
 
-    public IdempotencyClaim claimIdempotencyKey(String idempotencyKey, String sessionId, Duration ttl) {
+    public IdempotencyClaim claimIdempotencyKey(String idempotencyKey, String sessionId, String requestFingerprint, Duration ttl) {
         String key = IDEMPOTENCY_PREFIX + idempotencyKey;
-        boolean claimed = Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, sessionId, ttl));
+        boolean claimed = Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(
+                key,
+                serializeIdempotencyValue(new IdempotencyValue(sessionId, requestFingerprint)),
+                ttl
+        ));
         if (claimed) {
-            return new IdempotencyClaim(true, sessionId);
+            return new IdempotencyClaim(true, sessionId, requestFingerprint);
         }
-        String existingSessionId = redisTemplate.opsForValue().get(key);
-        if (existingSessionId == null) {
-            return claimIdempotencyKey(idempotencyKey, sessionId, ttl);
+        IdempotencyValue existing = readIdempotencyValue(key);
+        if (existing == null) {
+            return claimIdempotencyKey(idempotencyKey, sessionId, requestFingerprint, ttl);
         }
-        return new IdempotencyClaim(false, existingSessionId);
+        return new IdempotencyClaim(false, existing.sessionId(), existing.requestFingerprint());
     }
 
     public void saveSession(SessionSnapshot session) {
@@ -130,6 +135,26 @@ public class RedisStateStore {
         }
     }
 
+    private String serializeIdempotencyValue(IdempotencyValue value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize Redis idempotency value", ex);
+        }
+    }
+
+    private IdempotencyValue readIdempotencyValue(String key) {
+        String value = redisTemplate.opsForValue().get(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(value, IdempotencyValue.class);
+        } catch (JsonProcessingException ex) {
+            return new IdempotencyValue(value, null);
+        }
+    }
+
     private <T> Optional<T> readJson(String key, Class<T> type) {
         String value = redisTemplate.opsForValue().get(key);
         if (value == null) {
@@ -160,5 +185,8 @@ public class RedisStateStore {
 
     private String capacityKey(String nodeId) {
         return NODE_CAPACITY_PREFIX + nodeId + NODE_CAPACITY_SUFFIX;
+    }
+
+    private record IdempotencyValue(String sessionId, String requestFingerprint) {
     }
 }

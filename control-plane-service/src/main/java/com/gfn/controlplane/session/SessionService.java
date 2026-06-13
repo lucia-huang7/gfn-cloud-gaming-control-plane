@@ -10,8 +10,12 @@ import com.gfn.controlplane.state.SessionSnapshot;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -46,8 +50,17 @@ public class SessionService {
             throw new IllegalArgumentException("Tenant id is required to create a session");
         }
         String sessionId = "sess_" + UUID.randomUUID();
-        IdempotencyClaim claim = stateStore.claimIdempotencyKey(caller.tenantId() + ":" + idempotencyKey, sessionId, idempotencyClaimTtl);
+        String requestFingerprint = fingerprint(request);
+        IdempotencyClaim claim = stateStore.claimIdempotencyKey(
+                caller.tenantId() + ":" + idempotencyKey,
+                sessionId,
+                requestFingerprint,
+                idempotencyClaimTtl
+        );
         if (!claim.claimed()) {
+            if (claim.requestFingerprint() != null && !claim.requestFingerprint().equals(requestFingerprint)) {
+                throw new IllegalArgumentException("Idempotency-Key was already used with a different request body");
+            }
             return waitForClaimedSession(claim.sessionId());
         }
 
@@ -230,6 +243,22 @@ public class SessionService {
                 session.gpuProfile(),
                 session.maxLatencyMs()
         );
+    }
+
+    private String fingerprint(CreateSessionRequest request) {
+        String canonical = String.join("|",
+                request.userId(),
+                request.gameId(),
+                request.region().name(),
+                request.gpuProfile().name(),
+                String.valueOf(request.maxLatencyMs())
+        );
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 digest is unavailable", ex);
+        }
     }
 
     private void assertTenantAccess(SessionRecord session) {

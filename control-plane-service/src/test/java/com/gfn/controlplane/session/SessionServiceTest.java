@@ -42,14 +42,27 @@ class SessionServiceTest {
     void idempotencyLoserWaitsForExistingSessionAndDoesNotPlaceAgain() {
         CallerContext.set(new CallerContext(CallerRole.CLIENT, "tenant-a"));
         SessionSnapshot existing = reservedSnapshot("sess-existing", "tenant-a");
-        when(stateStore.claimIdempotencyKey(eq("tenant-a:idem-1"), any(String.class), any(Duration.class)))
-                .thenReturn(new IdempotencyClaim(false, "sess-existing"));
+        when(stateStore.claimIdempotencyKey(eq("tenant-a:idem-1"), any(String.class), any(String.class), any(Duration.class)))
+                .thenAnswer(invocation -> new IdempotencyClaim(false, "sess-existing", invocation.getArgument(2)));
         when(stateStore.findSession("sess-existing")).thenReturn(Optional.of(existing));
 
         SessionResponse response = service.createSession("idem-1", request());
 
         assertThat(response.sessionId()).isEqualTo("sess-existing");
         verify(placementService, never()).place(any(String.class), any(CreateSessionRequest.class));
+    }
+
+    @Test
+    void rejectsIdempotencyKeyReusedWithDifferentRequestBody() {
+        CallerContext.set(new CallerContext(CallerRole.CLIENT, "tenant-a"));
+        when(stateStore.claimIdempotencyKey(eq("tenant-a:idem-1"), any(String.class), any(String.class), any(Duration.class)))
+                .thenReturn(new IdempotencyClaim(false, "sess-existing", "different-fingerprint"));
+
+        assertThatThrownBy(() -> service.createSession("idem-1", request()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("different request body");
+        verify(placementService, never()).place(any(String.class), any(CreateSessionRequest.class));
+        verify(stateStore, never()).findSession("sess-existing");
     }
 
     @Test

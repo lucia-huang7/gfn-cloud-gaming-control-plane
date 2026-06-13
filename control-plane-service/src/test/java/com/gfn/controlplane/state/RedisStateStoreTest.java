@@ -6,12 +6,14 @@ import com.gfn.controlplane.session.GpuProfile;
 import com.gfn.controlplane.session.Region;
 import com.gfn.controlplane.session.SessionStatus;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.function.Consumer;
@@ -52,6 +54,60 @@ class RedisStateStoreTest {
 
         verify(valueOperations).set(eq("state:node:node-1"), any(String.class));
         verify(setOperations).add("state:nodes", "node-1");
+    }
+
+    @Test
+    void idempotencyClaimStoresRequestFingerprint() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(eq("state:idempotency:tenant-a:idem-1"), any(String.class), eq(Duration.ofMinutes(10))))
+                .thenReturn(true);
+        ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
+
+        IdempotencyClaim claim = stateStore.claimIdempotencyKey(
+                "tenant-a:idem-1",
+                "sess-1",
+                "fingerprint-1",
+                Duration.ofMinutes(10)
+        );
+
+        assertThat(claim).isEqualTo(new IdempotencyClaim(true, "sess-1", "fingerprint-1"));
+        verify(valueOperations).setIfAbsent(eq("state:idempotency:tenant-a:idem-1"), value.capture(), eq(Duration.ofMinutes(10)));
+        assertThat(value.getValue()).contains("sess-1", "fingerprint-1");
+    }
+
+    @Test
+    void idempotencyClaimReturnsExistingFingerprint() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(eq("state:idempotency:tenant-a:idem-1"), any(String.class), eq(Duration.ofMinutes(10))))
+                .thenReturn(false);
+        when(valueOperations.get("state:idempotency:tenant-a:idem-1"))
+                .thenReturn("{\"sessionId\":\"sess-existing\",\"requestFingerprint\":\"fingerprint-existing\"}");
+
+        IdempotencyClaim claim = stateStore.claimIdempotencyKey(
+                "tenant-a:idem-1",
+                "sess-new",
+                "fingerprint-new",
+                Duration.ofMinutes(10)
+        );
+
+        assertThat(claim).isEqualTo(new IdempotencyClaim(false, "sess-existing", "fingerprint-existing"));
+    }
+
+    @Test
+    void idempotencyClaimStillReadsLegacySessionIdValues() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(eq("state:idempotency:tenant-a:idem-1"), any(String.class), eq(Duration.ofMinutes(10))))
+                .thenReturn(false);
+        when(valueOperations.get("state:idempotency:tenant-a:idem-1")).thenReturn("sess-existing");
+
+        IdempotencyClaim claim = stateStore.claimIdempotencyKey(
+                "tenant-a:idem-1",
+                "sess-new",
+                "fingerprint-new",
+                Duration.ofMinutes(10)
+        );
+
+        assertThat(claim).isEqualTo(new IdempotencyClaim(false, "sess-existing", null));
     }
 
     @Test

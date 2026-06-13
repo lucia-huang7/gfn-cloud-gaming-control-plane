@@ -32,7 +32,7 @@ RedisLeaseManager
 
 RedisStateStore
   stores session records
-  claims idempotency keys with SET NX and a bounded TTL
+  claims idempotency keys with SET NX, request fingerprints, and a bounded TTL
   stores node registry and heartbeat snapshots
   keeps heartbeat snapshots separate from reservation capacity counters
   reads schedulable node capacity from Redis counters
@@ -189,10 +189,13 @@ deadletter:session-event:{uuid}
 
 ## Idempotency
 
-`POST /api/v1/sessions` first claims `state:idempotency:{key}` with Redis
-`SET NX EX`. The winner owns session creation. Concurrent requests with the same
-key read the claimed session id and wait briefly for the session record to become
-visible instead of creating another session.
+`POST /api/v1/sessions` first claims
+`state:idempotency:{tenantId}:{key}` with Redis `SET NX EX`. The value stores the
+claimed session id and a SHA-256 fingerprint of the canonical request body. The
+winner owns session creation. Concurrent requests with the same key and same
+fingerprint read the claimed session id and wait briefly for the session record
+to become visible instead of creating another session. Reusing the same key with
+a different request body is rejected.
 
 Reservation Lua script:
 
@@ -268,7 +271,7 @@ shared through Redis:
 ```text
 sessions       -> state:session:{sessionId}
 session index  -> state:sessions
-idempotency    -> state:idempotency:{idempotencyKey}
+idempotency    -> state:idempotency:{tenantId}:{idempotencyKey}
 node registry  -> state:node:{nodeId}
 node index     -> state:nodes
 capacity lease -> node:{nodeId}:available_slots and session:{sessionId}:lease

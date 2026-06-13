@@ -63,8 +63,9 @@ node token   -> register nodes and send heartbeats
 admin token  -> all endpoints, including terminate and node inventory
 ```
 
-Client requests must include `X-Tenant-Id`. Idempotency keys are scoped by tenant,
-and session reads are tenant-checked unless the caller is admin.
+Client requests must include `X-Tenant-Id`. Idempotency keys are scoped by tenant
+and bound to a request-body fingerprint; reusing a key with a different body is
+rejected. Session reads are tenant-checked unless the caller is admin.
 
 ## Endpoints
 
@@ -116,8 +117,8 @@ docker run --rm \
 ```
 
 Current test coverage includes placement scoring, latency SLA filtering, Redis
-lease accounting, heartbeat/capacity separation, idempotency, multi-replica
-queue drain claims, caller authorization, tenant isolation, controller
+lease accounting, heartbeat/capacity separation, idempotency fingerprint checks,
+multi-replica queue drain claims, caller authorization, tenant isolation, controller
 validation, Cassandra dead-letter fallback, Redis secondary-index scans, and
 replica safety checks against local authoritative maps.
 
