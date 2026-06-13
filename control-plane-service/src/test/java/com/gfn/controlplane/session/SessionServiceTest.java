@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -63,6 +64,34 @@ class SessionServiceTest {
                 .hasMessageContaining("different request body");
         verify(placementService, never()).place(any(String.class), any(CreateSessionRequest.class));
         verify(stateStore, never()).findSession("sess-existing");
+    }
+
+    @Test
+    void releasesIdempotencyClaimWhenSessionIsNotSaved() {
+        CallerContext.set(new CallerContext(CallerRole.CLIENT, "tenant-a"));
+        when(stateStore.claimIdempotencyKey(eq("tenant-a:idem-1"), any(String.class), any(String.class), any(Duration.class)))
+                .thenAnswer(invocation -> new IdempotencyClaim(true, invocation.getArgument(1), invocation.getArgument(2)));
+        doThrow(new IllegalStateException("redis unavailable"))
+                .when(stateStore).saveSession(any(SessionSnapshot.class));
+
+        assertThatThrownBy(() -> service.createSession("idem-1", request()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("redis unavailable");
+        verify(stateStore).releaseIdempotencyClaim(eq("tenant-a:idem-1"), any(String.class), any(String.class));
+    }
+
+    @Test
+    void keepsIdempotencyClaimWhenSessionIsVisibleButPlacementFails() {
+        CallerContext.set(new CallerContext(CallerRole.CLIENT, "tenant-a"));
+        when(stateStore.claimIdempotencyKey(eq("tenant-a:idem-1"), any(String.class), any(String.class), any(Duration.class)))
+                .thenAnswer(invocation -> new IdempotencyClaim(true, invocation.getArgument(1), invocation.getArgument(2)));
+        when(placementService.place(any(String.class), any(CreateSessionRequest.class)))
+                .thenThrow(new IllegalStateException("placement failed"));
+
+        assertThatThrownBy(() -> service.createSession("idem-1", request()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("placement failed");
+        verify(stateStore, never()).releaseIdempotencyClaim(eq("tenant-a:idem-1"), any(String.class), any(String.class));
     }
 
     @Test

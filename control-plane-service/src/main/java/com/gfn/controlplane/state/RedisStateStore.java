@@ -61,6 +61,16 @@ public class RedisStateStore {
         return new IdempotencyClaim(false, existing.sessionId(), existing.requestFingerprint());
     }
 
+    public void releaseIdempotencyClaim(String idempotencyKey, String sessionId, String requestFingerprint) {
+        String key = IDEMPOTENCY_PREFIX + idempotencyKey;
+        IdempotencyValue existing = readIdempotencyValue(key);
+        if (existing != null
+                && existing.sessionId().equals(sessionId)
+                && Objects.equals(existing.requestFingerprint(), requestFingerprint)) {
+            redisTemplate.delete(key);
+        }
+    }
+
     public void saveSession(SessionSnapshot session) {
         writeJson(SESSION_PREFIX + session.sessionId(), session);
         redisTemplate.opsForSet().add(SESSION_INDEX, session.sessionId());

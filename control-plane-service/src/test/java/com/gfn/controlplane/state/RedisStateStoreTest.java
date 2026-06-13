@@ -111,6 +111,28 @@ class RedisStateStoreTest {
     }
 
     @Test
+    void releaseIdempotencyClaimDeletesOnlyMatchingClaim() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("state:idempotency:tenant-a:idem-1"))
+                .thenReturn("{\"sessionId\":\"sess-1\",\"requestFingerprint\":\"fingerprint-1\"}");
+
+        stateStore.releaseIdempotencyClaim("tenant-a:idem-1", "sess-1", "fingerprint-1");
+
+        verify(redisTemplate).delete("state:idempotency:tenant-a:idem-1");
+    }
+
+    @Test
+    void releaseIdempotencyClaimKeepsMismatchedClaim() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("state:idempotency:tenant-a:idem-1"))
+                .thenReturn("{\"sessionId\":\"sess-2\",\"requestFingerprint\":\"fingerprint-2\"}");
+
+        stateStore.releaseIdempotencyClaim("tenant-a:idem-1", "sess-1", "fingerprint-1");
+
+        verify(redisTemplate, never()).delete("state:idempotency:tenant-a:idem-1");
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void listSessionsScansSecondaryIndexInsteadOfUsingKeys() throws Exception {
         Cursor<String> cursor = mock(Cursor.class);

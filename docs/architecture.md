@@ -197,6 +197,11 @@ fingerprint read the claimed session id and wait briefly for the session record
 to become visible instead of creating another session. Reusing the same key with
 a different request body is rejected.
 
+If the request owns a new idempotency claim but fails before the initial session
+record is saved, the service releases that claim only when the stored session id
+and fingerprint still match. Once a session record is visible, the claim is kept
+so retries converge on that session instead of creating a second one.
+
 Reservation Lua script:
 
 ```text

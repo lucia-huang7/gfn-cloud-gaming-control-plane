@@ -64,29 +64,38 @@ public class SessionService {
             return waitForClaimedSession(claim.sessionId());
         }
 
-        SessionRecord session = new SessionRecord(
-                sessionId,
-                caller.tenantId(),
-                request.userId(),
-                request.gameId(),
-                request.region(),
-                request.gpuProfile(),
-                request.maxLatencyMs()
-        );
-        stateStore.saveSession(toSnapshot(session));
+        boolean sessionSaved = false;
+        try {
+            SessionRecord session = new SessionRecord(
+                    sessionId,
+                    caller.tenantId(),
+                    request.userId(),
+                    request.gameId(),
+                    request.region(),
+                    request.gpuProfile(),
+                    request.maxLatencyMs()
+            );
+            stateStore.saveSession(toSnapshot(session));
+            sessionSaved = true;
 
-        PlacementResult placement = placementService.place(sessionId, request);
-        if (placement.reserved()) {
-            session.status(SessionStatus.RESERVED);
-            session.nodeId(placement.nodeId());
-            saveEvent(session, "PLACEMENT_RESERVED");
-        } else {
-            session.status(SessionStatus.QUEUED);
-            saveEvent(session, "SESSION_QUEUED");
+            PlacementResult placement = placementService.place(sessionId, request);
+            if (placement.reserved()) {
+                session.status(SessionStatus.RESERVED);
+                session.nodeId(placement.nodeId());
+                saveEvent(session, "PLACEMENT_RESERVED");
+            } else {
+                session.status(SessionStatus.QUEUED);
+                saveEvent(session, "SESSION_QUEUED");
+            }
+            stateStore.saveSession(toSnapshot(session));
+
+            return toResponse(session);
+        } catch (RuntimeException ex) {
+            if (!sessionSaved) {
+                stateStore.releaseIdempotencyClaim(caller.tenantId() + ":" + idempotencyKey, sessionId, requestFingerprint);
+            }
+            throw ex;
         }
-        stateStore.saveSession(toSnapshot(session));
-
-        return toResponse(session);
     }
 
     private SessionResponse waitForClaimedSession(String sessionId) {
