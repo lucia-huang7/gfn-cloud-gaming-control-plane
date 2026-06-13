@@ -8,8 +8,10 @@ services:
       CASSANDRA_CONTACT_POINTS: cassandra
       CASSANDRA_LOCAL_DATACENTER: datacenter1
     depends_on:
-      - redis
-      - cassandra
+      redis:
+        condition: service_started
+      cassandra-schema:
+        condition: service_completed_successfully
 
   redis:
     image: valkey/valkey:7.2
@@ -24,4 +26,23 @@ services:
       CASSANDRA_CLUSTER_NAME: gfn-control-plane
       CASSANDRA_DC: datacenter1
       CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh localhost 9042 -e 'DESCRIBE CLUSTER' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
+  cassandra-schema:
+    image: cassandra:4.1
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./deploy/cassandra/migrations:/migrations:ro
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      "until /opt/cassandra/bin/cqlsh cassandra 9042 -e 'DESCRIBE CLUSTER'; do
+        echo waiting for cassandra;
+        sleep 5;
+      done;
+      /opt/cassandra/bin/cqlsh cassandra 9042 -f /migrations/001_session_events.cql"

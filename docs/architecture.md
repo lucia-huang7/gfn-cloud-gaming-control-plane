@@ -39,6 +39,7 @@ QueueReconciler
 
 Cassandra
   stores append-only session events
+  schema is applied by migration CQL, not by app startup
 
 SessionEventPublisher
   writes session events to Cassandra
@@ -186,6 +187,16 @@ if lease missing, do not increment
 
 ## Cassandra Table
 
+Schema is managed outside the application in:
+
+```text
+deploy/cassandra/migrations/001_session_events.cql
+```
+
+The Spring Boot service runs with `SchemaAction.NONE`; it expects the keyspace and
+tables to exist before startup. Local Docker Compose applies the migration with a
+one-shot `cassandra-schema` job.
+
 ```text
 session_events_by_session
 
@@ -202,6 +213,10 @@ columns:
   gpu_profile
   node_id
 ```
+
+Local development uses `NetworkTopologyStrategy` with RF=1 for `datacenter1` and
+a 30-day TTL. Production should set RF per datacenter and event retention from
+audit, billing, and compliance requirements.
 
 ## Reconciliation
 

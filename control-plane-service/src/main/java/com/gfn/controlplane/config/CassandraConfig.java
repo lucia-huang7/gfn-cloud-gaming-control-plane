@@ -4,10 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.cassandra.config.AbstractCassandraConfiguration;
 import org.springframework.data.cassandra.config.SchemaAction;
-import org.springframework.data.cassandra.core.cql.keyspace.CreateKeyspaceSpecification;
 import org.springframework.data.cassandra.repository.config.EnableCassandraRepositories;
-
-import java.util.List;
 
 @Configuration
 @EnableCassandraRepositories(basePackages = "com.gfn.controlplane.persistence")
@@ -46,11 +43,6 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
 
     @Override
     public SchemaAction getSchemaAction() {
-        return SchemaAction.CREATE_IF_NOT_EXISTS;
-    }
-
-    @Override
-    protected List<CreateKeyspaceSpecification> getKeyspaceCreations() {
-        return List.of(CreateKeyspaceSpecification.createKeyspace(keyspaceName).ifNotExists().withSimpleReplication(1));
+        return SchemaAction.NONE;
     }
 }
