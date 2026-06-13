@@ -24,15 +24,11 @@ public class PlacementService {
                 .sorted(Comparator.comparingDouble((GpuNode node) -> scorer.score(node, request)).reversed())
                 .filter(node -> leaseManager.tryReserve(node, sessionId))
                 .findFirst()
-                .map(node -> {
-                    nodeService.markReserved(node.nodeId());
-                    return PlacementResult.reserved(sessionId, node.nodeId());
-                })
+                .map(node -> PlacementResult.reserved(sessionId, node.nodeId()))
                 .orElseGet(() -> PlacementResult.queued(sessionId));
     }
 
     public void release(String nodeId, String sessionId) {
         leaseManager.release(nodeId, sessionId);
-        nodeService.markReleased(nodeId);
     }
 }

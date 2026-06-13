@@ -26,6 +26,15 @@ public class RedisLeaseManager {
             redis.call('SET', leaseKey, ARGV[3], 'EX', ttlSeconds)
             return 1
             """;
+    private static final String LUA_RELEASE = """
+            local capacityKey = KEYS[1]
+            local leaseKey = KEYS[2]
+            if redis.call('DEL', leaseKey) == 1 then
+              redis.call('INCR', capacityKey)
+              return 1
+            end
+            return 0
+            """;
 
     private final StringRedisTemplate redisTemplate;
     private final long ttlSeconds;
@@ -49,8 +58,10 @@ public class RedisLeaseManager {
     }
 
     public void release(String nodeId, String sessionId) {
-        redisTemplate.delete(leaseKey(sessionId));
-        redisTemplate.opsForValue().increment(capacityKey(nodeId));
+        redisTemplate.execute(
+                new DefaultRedisScript<>(LUA_RELEASE, Long.class),
+                List.of(capacityKey(nodeId), leaseKey(sessionId))
+        );
     }
 
     private String capacityKey(String nodeId) {

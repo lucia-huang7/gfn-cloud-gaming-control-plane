@@ -55,14 +55,6 @@ public class NodeService {
         return stateStore.listNodes().stream().map(this::fromSnapshot).map(NodeResponse::from).toList();
     }
 
-    public void markReserved(String nodeId) {
-        findById(nodeId).orElseThrow(() -> new IllegalArgumentException("Unknown node: " + nodeId));
-    }
-
-    public void markReleased(String nodeId) {
-        findById(nodeId);
-    }
-
     public void markStaleNodes(Duration heartbeatTimeout) {
         Instant cutoff = Instant.now().minus(heartbeatTimeout);
         stateStore.listNodes().stream()

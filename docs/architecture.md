@@ -22,6 +22,7 @@ RedisLeaseManager
   stores capacity counters
   writes session lease keys with TTL
   uses Lua for check/decrement/lease as one Redis operation
+  uses Lua for delete-lease/increment-capacity as one release operation
 
 RedisStateStore
   stores session records
@@ -136,6 +137,14 @@ if capacity <= 0, reject
 DECR capacity
 SET lease EX ttl
 return reserved
+```
+
+Release Lua script:
+
+```text
+DEL lease
+if deleted, INCR capacity
+if lease missing, do not increment
 ```
 
 ## Cassandra Table
