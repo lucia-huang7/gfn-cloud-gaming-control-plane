@@ -29,6 +29,7 @@ RedisStateStore
   claims idempotency keys with SET NX and a bounded TTL
   stores node registry and heartbeat snapshots
   reads node capacity from Redis counters
+  stores session event dead letters when Cassandra writes fail
 
 QueueReconciler
   marks stale nodes
@@ -38,6 +39,12 @@ QueueReconciler
 
 Cassandra
   stores append-only session events
+
+SessionEventPublisher
+  writes session events to Cassandra
+  logs Cassandra write failures
+  increments persisted/dead-lettered metrics
+  writes failed events to Redis dead-letter storage
 ```
 
 ## Request Flow
@@ -69,6 +76,10 @@ SessionEventRepository
   |
   v
 Cassandra
+  |
+  | on write failure
+  v
+Redis dead letter
 ```
 
 ## Session States
@@ -127,8 +138,24 @@ the SLA.
 state:session:{sessionId}
 state:idempotency:{idempotencyKey}
 state:node:{nodeId}                 # metadata and heartbeat snapshot
+deadletter:session-event:{uuid}
 node:{nodeId}:available_slots
 session:{sessionId}:lease
+```
+
+## Event Persistence Failure Path
+
+Session event writes are not silently ignored. `SessionEventPublisher` records:
+
+```text
+gfn_session_events_persisted_total
+gfn_session_events_dead_lettered_total
+```
+
+If Cassandra is unavailable, the failed event and exception summary are written to:
+
+```text
+deadletter:session-event:{uuid}
 ```
 
 ## Idempotency

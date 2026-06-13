@@ -1,7 +1,6 @@
 package com.gfn.controlplane.session;
 
-import com.gfn.controlplane.persistence.SessionEvent;
-import com.gfn.controlplane.persistence.SessionEventRepository;
+import com.gfn.controlplane.events.SessionEventPublisher;
 import com.gfn.controlplane.placement.PlacementResult;
 import com.gfn.controlplane.placement.PlacementService;
 import com.gfn.controlplane.state.IdempotencyClaim;
@@ -22,17 +21,17 @@ public class SessionService {
     private static final long IDEMPOTENCY_WAIT_MS = 25;
 
     private final PlacementService placementService;
-    private final SessionEventRepository eventRepository;
+    private final SessionEventPublisher eventPublisher;
     private final RedisStateStore stateStore;
     private final Duration idempotencyClaimTtl;
 
     public SessionService(
             PlacementService placementService,
-            SessionEventRepository eventRepository,
+            SessionEventPublisher eventPublisher,
             RedisStateStore stateStore,
             @Value("${control-plane.idempotency-claim-ttl-seconds:600}") long idempotencyClaimTtlSeconds) {
         this.placementService = placementService;
-        this.eventRepository = eventRepository;
+        this.eventPublisher = eventPublisher;
         this.stateStore = stateStore;
         this.idempotencyClaimTtl = Duration.ofSeconds(idempotencyClaimTtlSeconds);
     }
@@ -164,11 +163,7 @@ public class SessionService {
     }
 
     private void saveEvent(SessionRecord session, String type) {
-        try {
-            eventRepository.save(SessionEvent.from(session, type));
-        } catch (RuntimeException ignored) {
-            // Cassandra is optional for local API exploration; Docker Compose enables persistence.
-        }
+        eventPublisher.publish(session, type);
     }
 
     private SessionSnapshot toSnapshot(SessionRecord session) {

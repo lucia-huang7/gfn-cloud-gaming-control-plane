@@ -2,20 +2,26 @@ package com.gfn.controlplane.state;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gfn.controlplane.persistence.SessionEvent;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Component
 public class RedisStateStore {
     private static final String SESSION_PREFIX = "state:session:";
     private static final String IDEMPOTENCY_PREFIX = "state:idempotency:";
     private static final String NODE_PREFIX = "state:node:";
+    private static final String SESSION_EVENT_DEAD_LETTER_PREFIX = "deadletter:session-event:";
     private static final String NODE_CAPACITY_PREFIX = "node:";
     private static final String NODE_CAPACITY_SUFFIX = ":available_slots";
 
@@ -74,6 +80,21 @@ public class RedisStateStore {
 
     public List<NodeSnapshot> listNodes() {
         return scanJson(NODE_PREFIX + "*", NodeSnapshot.class);
+    }
+
+    public void deadLetterSessionEvent(SessionEvent event, RuntimeException failure) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("deadLetteredAt", Instant.now().toString());
+        payload.put("sessionId", event.getKey().getSessionId());
+        payload.put("eventId", event.getKey().getEventId().toString());
+        payload.put("eventCreatedAt", event.getKey().getCreatedAt().toString());
+        payload.put("eventType", event.getEventType());
+        payload.put("region", event.getRegion());
+        payload.put("gpuProfile", event.getGpuProfile());
+        payload.put("nodeId", event.getNodeId());
+        payload.put("failureType", failure.getClass().getName());
+        payload.put("failureMessage", failure.getMessage());
+        writeJson(SESSION_EVENT_DEAD_LETTER_PREFIX + UUID.randomUUID(), payload);
     }
 
     private void writeJson(String key, Object value) {
