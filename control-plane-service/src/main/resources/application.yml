@@ -5,12 +5,15 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
     cassandra:
       contact-points: ${CASSANDRA_CONTACT_POINTS:localhost}
       port: ${CASSANDRA_PORT:9042}
       keyspace-name: ${CASSANDRA_KEYSPACE:gfn_control_plane}
       local-datacenter: ${CASSANDRA_LOCAL_DATACENTER:datacenter1}
       schema-action: NONE
+      username: ${CASSANDRA_USERNAME:}
+      password: ${CASSANDRA_PASSWORD:}
 
 server:
   port: ${SERVER_PORT:8080}

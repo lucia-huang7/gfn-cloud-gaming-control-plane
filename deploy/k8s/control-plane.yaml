@@ -1,44 +1,226 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gfn-control-plane
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+    app.kubernetes.io/component: control-plane
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gfn-control-plane-config
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+data:
+  SERVER_PORT: "8080"
+  REDIS_HOST: "redis.production.svc.cluster.local"
+  REDIS_PORT: "6379"
+  CASSANDRA_CONTACT_POINTS: "cassandra.production.svc.cluster.local"
+  CASSANDRA_PORT: "9042"
+  CASSANDRA_KEYSPACE: "gfn_control_plane"
+  CASSANDRA_LOCAL_DATACENTER: "us-west"
+  CONTROL_PLANE_RECONCILE_INTERVAL_MS: "5000"
+  CONTROL_PLANE_HEARTBEAT_TIMEOUT_SECONDS: "20"
+  CONTROL_PLANE_RESERVATION_TTL_SECONDS: "45"
+  CONTROL_PLANE_IDEMPOTENCY_CLAIM_TTL_SECONDS: "600"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gfn-control-plane-secrets
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+type: Opaque
+stringData:
+  # Replace these through External Secrets, Sealed Secrets, or your secret manager.
+  CASSANDRA_USERNAME: "replace-me"
+  CASSANDRA_PASSWORD: "replace-me"
+  REDIS_PASSWORD: "replace-me"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: gfn-control-plane
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+    app.kubernetes.io/component: control-plane
 spec:
   replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
-      app: gfn-control-plane
+      app.kubernetes.io/name: gfn-control-plane
+      app.kubernetes.io/component: control-plane
   template:
     metadata:
       labels:
-        app: gfn-control-plane
+        app.kubernetes.io/name: gfn-control-plane
+        app.kubernetes.io/component: control-plane
     spec:
+      serviceAccountName: gfn-control-plane
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: control-plane
-          image: gfn-control-plane:local
+          image: ghcr.io/lucia-huang7/gfn-cloud-gaming-control-plane:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8080
-          env:
-            - name: REDIS_HOST
-              value: redis
-            - name: CASSANDRA_CONTACT_POINTS
-              value: cassandra
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gfn-control-plane-config
+            - secretRef:
+                name: gfn-control-plane-secrets
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
-              port: 8080
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
-              port: 8080
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: gfn-control-plane
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+    app.kubernetes.io/component: control-plane
 spec:
+  type: ClusterIP
   selector:
-    app: gfn-control-plane
+    app.kubernetes.io/name: gfn-control-plane
+    app.kubernetes.io/component: control-plane
   ports:
-    - port: 8080
-      targetPort: 8080
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gfn-control-plane
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gfn-control-plane
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gfn-control-plane
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gfn-control-plane
+      app.kubernetes.io/component: control-plane
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gfn-control-plane
+  labels:
+    app.kubernetes.io/name: gfn-control-plane
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gfn-control-plane
+      app.kubernetes.io/component: control-plane
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: gfn-platform
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              gfn.nvidia.com/data-plane: "true"
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 9042
