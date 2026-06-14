@@ -81,7 +81,7 @@ class SessionServiceTest {
     }
 
     @Test
-    void keepsIdempotencyClaimWhenSessionIsVisibleButPlacementFails() {
+    void marksSessionFailedWhenPlacementFailsAfterSessionIsVisible() {
         CallerContext.set(new CallerContext(CallerRole.CLIENT, "tenant-a"));
         when(stateStore.claimIdempotencyKey(eq("tenant-a:idem-1"), any(String.class), any(String.class), any(Duration.class)))
                 .thenAnswer(invocation -> new IdempotencyClaim(true, invocation.getArgument(1), invocation.getArgument(2)));
@@ -92,6 +92,11 @@ class SessionServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("placement failed");
         verify(stateStore, never()).releaseIdempotencyClaim(eq("tenant-a:idem-1"), any(String.class), any(String.class));
+        ArgumentCaptor<SessionSnapshot> saved = ArgumentCaptor.forClass(SessionSnapshot.class);
+        verify(stateStore, org.mockito.Mockito.times(2)).saveSession(saved.capture());
+        assertThat(saved.getAllValues().get(0).status()).isEqualTo(SessionStatus.QUEUED);
+        assertThat(saved.getAllValues().get(1).status()).isEqualTo(SessionStatus.FAILED);
+        verify(eventPublisher).publish(any(SessionRecord.class), eq("PLACEMENT_FAILED"));
     }
 
     @Test

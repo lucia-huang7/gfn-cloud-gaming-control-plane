@@ -79,7 +79,15 @@ public class SessionService {
             stateStore.saveSession(toSnapshot(session));
             sessionSaved = true;
 
-            PlacementResult placement = placementService.place(sessionId, request);
+            PlacementResult placement;
+            try {
+                placement = placementService.place(sessionId, request);
+            } catch (RuntimeException ex) {
+                session.status(SessionStatus.FAILED);
+                stateStore.saveSession(toSnapshot(session));
+                saveEvent(session, "PLACEMENT_FAILED");
+                throw ex;
+            }
             if (placement.reserved()) {
                 session.status(SessionStatus.RESERVED);
                 session.nodeId(placement.nodeId());

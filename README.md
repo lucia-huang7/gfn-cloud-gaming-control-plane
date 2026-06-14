@@ -92,7 +92,7 @@ POST /sessions
   -> SessionService checks Idempotency-Key
   -> PlacementService ranks healthy GPU nodes
   -> RedisLeaseManager reserves one slot atomically and rejects duplicate leases
-  -> Session is RESERVED or QUEUED
+  -> Session is RESERVED, QUEUED, or FAILED with an event
   -> SessionEvent is written to Cassandra
 ```
 

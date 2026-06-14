@@ -206,7 +206,11 @@ a different request body is rejected.
 If the request owns a new idempotency claim but fails before the initial session
 record is saved, the service releases that claim only when the stored session id
 and fingerprint still match. Once a session record is visible, the claim is kept
-so retries converge on that session instead of creating a second one.
+so retries converge on that session instead of creating a second one. If
+placement throws after the initial session record is visible, the service marks
+the session `FAILED`, writes a `PLACEMENT_FAILED` event, and rethrows the request
+error; later idempotent retries read the failed session instead of a misleading
+queued session.
 
 Reservation Lua script:
 
