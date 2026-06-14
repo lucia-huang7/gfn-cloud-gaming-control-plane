@@ -37,14 +37,15 @@ RedisStateStore
   claims idempotency keys with SET NX, request fingerprints, and a bounded TTL
   stores node registry and heartbeat snapshots
   keeps heartbeat snapshots separate from reservation capacity counters
+  indexes queued sessions by region/GPU profile and active reservations by time
   reads schedulable node capacity from Redis counters
   stores session event dead letters when Cassandra writes fail
 
 QueueReconciler
   marks stale nodes
-  expires old RESERVED sessions
+  expires old RESERVED sessions from the reservation-time index
   releases abandoned slots
-  drains QUEUED sessions in FIFO order
+  drains QUEUED sessions from region/GPU-profile queue shards in FIFO order
 
 Cassandra
   stores append-only session events
@@ -148,6 +149,8 @@ the SLA.
 ```text
 state:session:{sessionId}
 state:idempotency:{tenantId}:{idempotencyKey}
+state:sessions:queued:{region}:{gpuProfile}
+state:sessions:reserved:by_reservation_time
 state:node:{nodeId}                 # metadata and heartbeat snapshot
 deadletter:session-event:{uuid}
 rate-limit:client-create-session:{tenantId}
@@ -282,9 +285,11 @@ Runs on a fixed delay:
 
 ```text
 mark nodes STALE when last heartbeat is older than heartbeat-timeout
-expire RESERVED sessions whose reserved_at is older than reservation-ttl
+read RESERVED sessions due for expiry from state:sessions:reserved:by_reservation_time
+expire sessions whose reserved_at is older than reservation-ttl
 release slot for expired reservation
-retry QUEUED sessions in created_at order
+read QUEUED sessions from state:sessions:queued:{region}:{gpuProfile} shards
+retry QUEUED sessions in created_at order within each drain batch
 claim each queued session through Redis SET NX before retry
 stop draining when the first queued session cannot be placed
 write terminal session event
@@ -298,6 +303,8 @@ shared through Redis:
 ```text
 sessions       -> state:session:{sessionId}
 session index  -> state:sessions:active
+queue index    -> state:sessions:queued:{region}:{gpuProfile}
+expiry index   -> state:sessions:reserved:by_reservation_time
 idempotency    -> state:idempotency:{tenantId}:{idempotencyKey}
 node registry  -> state:node:{nodeId}
 node index     -> state:nodes
@@ -320,10 +327,43 @@ Lua script also checks whether
 `session:{sessionId}:lease` already exists before decrementing capacity, so a
 duplicate drain attempt cannot reserve the same session twice.
 
-Session and node enumeration never uses Redis `KEYS`; writes maintain secondary
-sets and readers page through those sets with `SSCAN`. Terminal sessions
-(`TERMINATED`, `EXPIRED`, `FAILED`) are removed from `state:sessions:active` and
-kept with a bounded retention TTL for follow-up reads. Node snapshots also have a
-retention TTL that is refreshed by registration and heartbeat; already stale nodes
-are not repeatedly saved by reconciliation, so churned nodes eventually expire
-and are pruned from `state:nodes` during indexed scans.
+Session and node enumeration never uses Redis `KEYS`. General list APIs keep
+secondary sets and page through them with `SSCAN`; reconciliation does not use
+those full active indexes. Queue drain reads bounded batches from
+`state:sessions:queued:{region}:{gpuProfile}` sorted sets, and reservation expiry
+reads bounded batches from `state:sessions:reserved:by_reservation_time`.
+Terminal sessions (`TERMINATED`, `EXPIRED`, `FAILED`) are removed from active,
+queued, and reservation-time indexes and kept with a bounded retention TTL for
+follow-up reads. Node snapshots also have a retention TTL that is refreshed by
+registration and heartbeat; already stale nodes are not repeatedly saved by
+reconciliation, so churned nodes eventually expire and are pruned from
+`state:nodes` during indexed scans.
+
+## Production Readiness Boundary
+
+This repository is a focused control-plane backend, not a production-complete
+cloud gaming system. It demonstrates REST APIs, Redis-backed placement state,
+queue and reservation reconciliation, Cassandra event history, Kubernetes
+manifests, and local integration testing. The following areas are intentionally
+left as explicit design work:
+
+- Data-plane handoff: `RESERVED` stops at control-plane placement. A production
+  service would hand the session to a streaming/gateway data plane, track
+  `STARTING` and `STREAMING` transitions from that plane, and revoke reservations
+  when startup fails.
+- Multi-region consistency: regions are represented in the data model, but the
+  repo does not implement global traffic steering, regional failover,
+  cross-region Redis/Cassandra consistency rules, or split-brain recovery.
+- Observability: Actuator and Prometheus endpoints exist, but full
+  OpenTelemetry tracing, RED/USE dashboards, SLO burn-rate alerts, and
+  per-region placement latency/error budgets are not included.
+- Chaos and failover testing: the compose smoke test proves the happy path for
+  Redis, Cassandra, auth, and HTTP. It does not inject Redis failover,
+  Cassandra write outages, pod eviction, network partitions, or clock skew.
+- Backpressure and overload policy: basic per-tenant rate limiting exists.
+  Production would need admission control by tenant/region/GPU profile, queue
+  depth limits, retry budgets, circuit breakers around dependencies, and clear
+  overload responses.
+- Security hardening: per-node credentials and audit trails are modeled, but
+  production should use workload identity such as mTLS/SPIFFE, automatic token
+  rotation, secret-manager integration, and tenant-level policy enforcement.

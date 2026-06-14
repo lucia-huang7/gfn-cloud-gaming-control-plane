@@ -100,6 +100,15 @@ POST /sessions
   -> SessionEvent is written to Cassandra
 ```
 
+## Scope
+
+This is a control-plane backend project, not a complete cloud gaming platform.
+It models session placement, capacity leases, queue reconciliation, auth checks,
+and event persistence. Production gaps are called out in `docs/architecture.md`:
+data-plane handoff, multi-region consistency policy, OpenTelemetry tracing, SLO
+dashboards, chaos/failover tests, and backpressure behavior are documented as
+next steps rather than claimed as done.
+
 ## Modules
 
 ```text
