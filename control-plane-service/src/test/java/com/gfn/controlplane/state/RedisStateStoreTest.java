@@ -60,7 +60,8 @@ class RedisStateStoreTest {
                 45,
                 Instant.parse("2026-06-13T00:00:00Z"),
                 SessionStatus.TERMINATED,
-                "node-1"
+                "node-1",
+                Instant.parse("2026-06-13T00:00:00Z")
         );
 
         stateStore.saveSession(session);
@@ -279,6 +280,7 @@ class RedisStateStoreTest {
                 45,
                 Instant.parse("2026-06-13T00:00:00Z"),
                 SessionStatus.QUEUED,
+                null,
                 null
         );
     }

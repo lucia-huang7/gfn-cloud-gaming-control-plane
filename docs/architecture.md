@@ -282,7 +282,7 @@ Runs on a fixed delay:
 
 ```text
 mark nodes STALE when last heartbeat is older than heartbeat-timeout
-expire RESERVED sessions older than reservation-ttl
+expire RESERVED sessions whose reserved_at is older than reservation-ttl
 release slot for expired reservation
 retry QUEUED sessions in created_at order
 claim each queued session through Redis SET NX before retry

@@ -91,6 +91,7 @@ public class SessionService {
             if (placement.reserved()) {
                 session.status(SessionStatus.RESERVED);
                 session.nodeId(placement.nodeId());
+                session.reservedAt(java.time.Instant.now());
                 saveEvent(session, "PLACEMENT_RESERVED");
             } else {
                 session.status(SessionStatus.QUEUED);
@@ -189,6 +190,7 @@ public class SessionService {
                 }
                 current.status(SessionStatus.RESERVED);
                 current.nodeId(placement.nodeId());
+                current.reservedAt(java.time.Instant.now());
                 stateStore.saveSession(toSnapshot(current));
                 saveEvent(current, "QUEUE_PLACEMENT_RESERVED");
                 placed++;
@@ -234,7 +236,8 @@ public class SessionService {
                 session.maxLatencyMs(),
                 session.createdAt(),
                 session.status(),
-                session.nodeId()
+                session.nodeId(),
+                session.reservedAt()
         );
     }
 
@@ -251,6 +254,7 @@ public class SessionService {
         );
         session.status(snapshot.status());
         session.nodeId(snapshot.nodeId());
+        session.reservedAt(snapshot.reservedAt());
         return session;
     }
 

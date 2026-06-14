@@ -33,7 +33,8 @@ public class QueueReconciler {
         nodeService.markStaleNodes(heartbeatTimeout);
         Instant cutoff = Instant.now().minus(reservationTtl);
         for (SessionRecord session : sessionService.activeReservations()) {
-            if (session.createdAt().isBefore(cutoff)) {
+            Instant reservationStartedAt = session.reservedAt() == null ? session.createdAt() : session.reservedAt();
+            if (reservationStartedAt.isBefore(cutoff)) {
                 sessionService.expire(session);
             }
         }

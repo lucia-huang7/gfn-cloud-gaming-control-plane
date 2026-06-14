@@ -16,6 +16,7 @@ public record SessionSnapshot(
         int maxLatencyMs,
         Instant createdAt,
         SessionStatus status,
-        String nodeId
+        String nodeId,
+        Instant reservedAt
 ) {
 }

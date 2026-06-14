@@ -121,6 +121,7 @@ class SessionServiceTest {
                 45,
                 Instant.now(),
                 SessionStatus.QUEUED,
+                null,
                 null
         );
         when(stateStore.listSessions()).thenReturn(List.of(queued));
@@ -136,6 +137,7 @@ class SessionServiceTest {
         verify(stateStore).saveSession(saved.capture());
         assertThat(saved.getValue().status()).isEqualTo(SessionStatus.RESERVED);
         assertThat(saved.getValue().nodeId()).isEqualTo("node-1");
+        assertThat(saved.getValue().reservedAt()).isNotNull();
         verify(stateStore).releaseQueuedSessionClaim("sess-q", "claim-token");
     }
 
@@ -182,7 +184,8 @@ class SessionServiceTest {
                 45,
                 Instant.now(),
                 SessionStatus.RESERVED,
-                "node-1"
+                "node-1",
+                Instant.now()
         );
     }
 
@@ -197,6 +200,7 @@ class SessionServiceTest {
                 45,
                 Instant.now(),
                 SessionStatus.QUEUED,
+                null,
                 null
         );
     }

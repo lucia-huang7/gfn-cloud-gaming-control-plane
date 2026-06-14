@@ -13,6 +13,7 @@ public class SessionRecord {
     private final Instant createdAt;
     private volatile SessionStatus status;
     private volatile String nodeId;
+    private volatile Instant reservedAt;
 
     public SessionRecord(String sessionId, String tenantId, String userId, String gameId, Region region, GpuProfile gpuProfile, int maxLatencyMs) {
         this(sessionId, tenantId, userId, gameId, region, gpuProfile, maxLatencyMs, Instant.now());
@@ -76,6 +77,14 @@ public class SessionRecord {
 
     public void nodeId(String nodeId) {
         this.nodeId = nodeId;
+    }
+
+    public Instant reservedAt() {
+        return reservedAt;
+    }
+
+    public void reservedAt(Instant reservedAt) {
+        this.reservedAt = reservedAt;
     }
 
     public SessionResponse toResponse(Integer queuePosition, Integer estimatedWaitSeconds) {
