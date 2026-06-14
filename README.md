@@ -134,3 +134,9 @@ authoritative maps.
 ```bash
 k6 run load-test/session-allocation.js
 ```
+
+Override auth inputs when running outside the local dev defaults:
+
+```bash
+CLIENT_TOKEN=... NODE_AUTH_TOKEN=... TENANT_ID=tenant-a k6 run load-test/session-allocation.js
+```
