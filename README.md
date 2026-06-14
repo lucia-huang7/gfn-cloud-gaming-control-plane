@@ -122,7 +122,8 @@ Current test coverage includes placement scoring, latency SLA filtering, Redis
 lease accounting, heartbeat/capacity separation, idempotency fingerprint checks,
 multi-replica queue drain claims, caller authorization, tenant isolation, controller
 validation, Cassandra dead-letter fallback, Redis secondary-index scans, and
-replica safety checks against local authoritative maps.
+bounded Redis index retention, and replica safety checks against local
+authoritative maps.
 
 ## Load Test
 

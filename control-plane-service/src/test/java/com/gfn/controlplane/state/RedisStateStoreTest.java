@@ -33,17 +33,40 @@ class RedisStateStoreTest {
     private final ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
     private final SetOperations<String, String> setOperations = mock(SetOperations.class);
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-    private final RedisStateStore stateStore = new RedisStateStore(redisTemplate, objectMapper);
+    private final RedisStateStore stateStore = new RedisStateStore(redisTemplate, objectMapper, 86400, 3600);
 
     @Test
-    void saveSessionMaintainsSecondaryIndex() {
+    void saveActiveSessionMaintainsActiveSecondaryIndex() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
 
         stateStore.saveSession(session("sess-1"));
 
         verify(valueOperations).set(eq("state:session:sess-1"), any(String.class));
-        verify(setOperations).add("state:sessions", "sess-1");
+        verify(setOperations).add("state:sessions:active", "sess-1");
+    }
+
+    @Test
+    void saveTerminalSessionAppliesRetentionAndRemovesActiveIndexEntry() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        SessionSnapshot session = new SessionSnapshot(
+                "sess-1",
+                "tenant-a",
+                "user_123",
+                "cyberpunk2077",
+                Region.US_WEST,
+                GpuProfile.ULTRA,
+                45,
+                Instant.parse("2026-06-13T00:00:00Z"),
+                SessionStatus.TERMINATED,
+                "node-1"
+        );
+
+        stateStore.saveSession(session);
+
+        verify(valueOperations).set(eq("state:session:sess-1"), any(String.class), eq(Duration.ofSeconds(86400)));
+        verify(setOperations).remove("state:sessions:active", "sess-1");
     }
 
     @Test
@@ -53,7 +76,7 @@ class RedisStateStoreTest {
 
         stateStore.saveNode(node("node-1"));
 
-        verify(valueOperations).set(eq("state:node:node-1"), any(String.class));
+        verify(valueOperations).set(eq("state:node:node-1"), any(String.class), eq(Duration.ofSeconds(3600)));
         verify(setOperations).add("state:nodes", "node-1");
     }
 
@@ -170,7 +193,7 @@ class RedisStateStoreTest {
         SessionSnapshot session = session("sess-1");
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(setOperations.scan(eq("state:sessions"), any(ScanOptions.class))).thenReturn(cursor);
+        when(setOperations.scan(eq("state:sessions:active"), any(ScanOptions.class))).thenReturn(cursor);
         doAnswer(invocation -> {
             Consumer<String> consumer = invocation.getArgument(0);
             consumer.accept("sess-1");
@@ -181,8 +204,27 @@ class RedisStateStoreTest {
         List<SessionSnapshot> sessions = stateStore.listSessions();
 
         assertThat(sessions).containsExactly(session);
-        verify(setOperations).scan(eq("state:sessions"), any(ScanOptions.class));
+        verify(setOperations).scan(eq("state:sessions:active"), any(ScanOptions.class));
         verify(redisTemplate, never()).keys(any(String.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listSessionsPrunesExpiredIdsFromActiveIndex() {
+        Cursor<String> cursor = mock(Cursor.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(setOperations.scan(eq("state:sessions:active"), any(ScanOptions.class))).thenReturn(cursor);
+        doAnswer(invocation -> {
+            Consumer<String> consumer = invocation.getArgument(0);
+            consumer.accept("sess-expired");
+            return null;
+        }).when(cursor).forEachRemaining(any());
+        when(valueOperations.get("state:session:sess-expired")).thenReturn(null);
+
+        assertThat(stateStore.listSessions()).isEmpty();
+
+        verify(setOperations).remove("state:sessions:active", "sess-expired");
     }
 
     @Test
@@ -205,6 +247,25 @@ class RedisStateStoreTest {
         assertThat(nodes).containsExactly(node);
         verify(setOperations).scan(eq("state:nodes"), any(ScanOptions.class));
         verify(redisTemplate, never()).keys(any(String.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listNodesPrunesExpiredIdsFromIndex() {
+        Cursor<String> cursor = mock(Cursor.class);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(setOperations.scan(eq("state:nodes"), any(ScanOptions.class))).thenReturn(cursor);
+        doAnswer(invocation -> {
+            Consumer<String> consumer = invocation.getArgument(0);
+            consumer.accept("node-expired");
+            return null;
+        }).when(cursor).forEachRemaining(any());
+        when(valueOperations.get("state:node:node-expired")).thenReturn(null);
+
+        assertThat(stateStore.listNodes()).isEmpty();
+
+        verify(setOperations).remove("state:nodes", "node-expired");
     }
 
     private SessionSnapshot session(String sessionId) {

@@ -286,7 +286,7 @@ shared through Redis:
 
 ```text
 sessions       -> state:session:{sessionId}
-session index  -> state:sessions
+session index  -> state:sessions:active
 idempotency    -> state:idempotency:{tenantId}:{idempotencyKey}
 node registry  -> state:node:{nodeId}
 node index     -> state:nodes
@@ -310,4 +310,9 @@ Lua script also checks whether
 duplicate drain attempt cannot reserve the same session twice.
 
 Session and node enumeration never uses Redis `KEYS`; writes maintain secondary
-sets and readers page through those sets with `SSCAN`.
+sets and readers page through those sets with `SSCAN`. Terminal sessions
+(`TERMINATED`, `EXPIRED`, `FAILED`) are removed from `state:sessions:active` and
+kept with a bounded retention TTL for follow-up reads. Node snapshots also have a
+retention TTL that is refreshed by registration and heartbeat; already stale nodes
+are not repeatedly saved by reconciliation, so churned nodes eventually expire
+and are pruned from `state:nodes` during indexed scans.

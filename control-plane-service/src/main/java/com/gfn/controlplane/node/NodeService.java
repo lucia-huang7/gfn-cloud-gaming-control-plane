@@ -68,6 +68,7 @@ public class NodeService {
         stateStore.listNodes().stream()
                 .map(this::fromSnapshot)
                 .filter(node -> node.lastHeartbeatAt().isBefore(cutoff))
+                .filter(node -> node.status() != NodeStatus.STALE)
                 .forEach(node -> {
                     node.markStale();
                     stateStore.saveNode(toSnapshot(node));

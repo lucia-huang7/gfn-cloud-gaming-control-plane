@@ -34,6 +34,8 @@ control-plane:
   heartbeat-timeout-seconds: ${CONTROL_PLANE_HEARTBEAT_TIMEOUT_SECONDS:20}
   idempotency-claim-ttl-seconds: ${CONTROL_PLANE_IDEMPOTENCY_CLAIM_TTL_SECONDS:600}
   queue-claim-ttl-seconds: ${CONTROL_PLANE_QUEUE_CLAIM_TTL_SECONDS:30}
+  terminal-session-retention-seconds: ${CONTROL_PLANE_TERMINAL_SESSION_RETENTION_SECONDS:86400}
+  node-retention-seconds: ${CONTROL_PLANE_NODE_RETENTION_SECONDS:3600}
   auth:
     client-token: ${CONTROL_PLANE_CLIENT_TOKEN:dev-client-token}
     node-token: ${CONTROL_PLANE_NODE_TOKEN:dev-node-token}

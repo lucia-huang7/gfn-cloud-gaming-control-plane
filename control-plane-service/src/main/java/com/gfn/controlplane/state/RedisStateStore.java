@@ -3,6 +3,8 @@ package com.gfn.controlplane.state;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gfn.controlplane.persistence.SessionEvent;
+import com.gfn.controlplane.session.SessionStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,7 +32,7 @@ public class RedisStateStore {
             return 0
             """;
     private static final String SESSION_PREFIX = "state:session:";
-    private static final String SESSION_INDEX = "state:sessions";
+    private static final String SESSION_ACTIVE_INDEX = "state:sessions:active";
     private static final String IDEMPOTENCY_PREFIX = "state:idempotency:";
     private static final String QUEUE_CLAIM_PREFIX = "queue-claim:session:";
     private static final String NODE_PREFIX = "state:node:";
@@ -42,10 +44,18 @@ public class RedisStateStore {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final Duration terminalSessionRetention;
+    private final Duration nodeRetention;
 
-    public RedisStateStore(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+    public RedisStateStore(
+            StringRedisTemplate redisTemplate,
+            ObjectMapper objectMapper,
+            @Value("${control-plane.terminal-session-retention-seconds:86400}") long terminalSessionRetentionSeconds,
+            @Value("${control-plane.node-retention-seconds:3600}") long nodeRetentionSeconds) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.terminalSessionRetention = Duration.ofSeconds(terminalSessionRetentionSeconds);
+        this.nodeRetention = Duration.ofSeconds(nodeRetentionSeconds);
     }
 
     public Optional<String> getSessionIdForIdempotencyKey(String idempotencyKey) {
@@ -81,8 +91,13 @@ public class RedisStateStore {
     }
 
     public void saveSession(SessionSnapshot session) {
+        if (isTerminal(session.status())) {
+            writeJson(SESSION_PREFIX + session.sessionId(), session, terminalSessionRetention);
+            redisTemplate.opsForSet().remove(SESSION_ACTIVE_INDEX, session.sessionId());
+            return;
+        }
         writeJson(SESSION_PREFIX + session.sessionId(), session);
-        redisTemplate.opsForSet().add(SESSION_INDEX, session.sessionId());
+        redisTemplate.opsForSet().add(SESSION_ACTIVE_INDEX, session.sessionId());
     }
 
     public Optional<SessionSnapshot> findSession(String sessionId) {
@@ -90,7 +105,7 @@ public class RedisStateStore {
     }
 
     public List<SessionSnapshot> listSessions() {
-        return scanIndexedJson(SESSION_INDEX, SESSION_PREFIX, SessionSnapshot.class);
+        return scanIndexedJson(SESSION_ACTIVE_INDEX, SESSION_PREFIX, SessionSnapshot.class);
     }
 
     public Optional<String> claimQueuedSession(String sessionId, Duration ttl) {
@@ -108,7 +123,7 @@ public class RedisStateStore {
     }
 
     public void saveNode(NodeSnapshot node) {
-        writeJson(NODE_PREFIX + node.nodeId(), node);
+        writeJson(NODE_PREFIX + node.nodeId(), node, nodeRetention);
         redisTemplate.opsForSet().add(NODE_INDEX, node.nodeId());
     }
 
@@ -160,6 +175,14 @@ public class RedisStateStore {
         }
     }
 
+    private void writeJson(String key, Object value, Duration ttl) {
+        try {
+            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize Redis state for key " + key, ex);
+        }
+    }
+
     private String serializeIdempotencyValue(IdempotencyValue value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -193,10 +216,16 @@ public class RedisStateStore {
     }
 
     private <T> List<T> scanIndexedJson(String indexKey, String valuePrefix, Class<T> type) {
-        return scanSet(indexKey).stream()
-                .map(id -> readJson(valuePrefix + id, type).orElse(null))
-                .filter(Objects::nonNull)
-                .toList();
+        List<T> values = new ArrayList<>();
+        for (String id : scanSet(indexKey)) {
+            Optional<T> value = readJson(valuePrefix + id, type);
+            if (value.isPresent()) {
+                values.add(value.get());
+            } else {
+                redisTemplate.opsForSet().remove(indexKey, id);
+            }
+        }
+        return values;
     }
 
     private List<String> scanSet(String key) {
@@ -210,6 +239,12 @@ public class RedisStateStore {
 
     private String capacityKey(String nodeId) {
         return NODE_CAPACITY_PREFIX + nodeId + NODE_CAPACITY_SUFFIX;
+    }
+
+    private boolean isTerminal(SessionStatus status) {
+        return status == SessionStatus.TERMINATED
+                || status == SessionStatus.EXPIRED
+                || status == SessionStatus.FAILED;
     }
 
     private record IdempotencyValue(String sessionId, String requestFingerprint) {

@@ -9,7 +9,9 @@ import com.gfn.controlplane.state.RedisStateStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,6 +73,25 @@ class NodeServiceTest {
         assertThatThrownBy(() -> nodeService.heartbeat("node-2", new HeartbeatRequest(8, 0)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("node-2");
+        verify(stateStore, never()).saveNode(any(NodeSnapshot.class));
+    }
+
+    @Test
+    void staleNodesAreNotRepeatedlySavedAndKeptAliveForever() {
+        when(stateStore.listNodes()).thenReturn(List.of(new NodeSnapshot(
+                "node-1",
+                Region.US_WEST,
+                GpuProfile.ULTRA,
+                8,
+                8,
+                0,
+                20,
+                Instant.parse("2026-06-13T00:00:00Z"),
+                NodeStatus.STALE
+        )));
+
+        nodeService.markStaleNodes(Duration.ofSeconds(20));
+
         verify(stateStore, never()).saveNode(any(NodeSnapshot.class));
     }
 
