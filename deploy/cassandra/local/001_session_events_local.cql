@@ -1,8 +1,7 @@
 CREATE KEYSPACE IF NOT EXISTS gfn_control_plane
 WITH replication = {
   'class': 'NetworkTopologyStrategy',
-  'us-west': 3,
-  'us-east': 3
+  'datacenter1': 1
 }
 AND durable_writes = true;
 

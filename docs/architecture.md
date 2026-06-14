@@ -236,8 +236,10 @@ deploy/cassandra/migrations/001_session_events.cql
 ```
 
 The Spring Boot service runs with `SchemaAction.NONE`; it expects the keyspace and
-tables to exist before startup. Local Docker Compose applies the migration with a
-one-shot `cassandra-schema` job.
+tables to exist before startup. The production migration uses
+`NetworkTopologyStrategy` with RF=3 for `us-west` and `us-east`. Local Docker
+Compose applies `deploy/cassandra/local/001_session_events_local.cql` with a
+one-shot `cassandra-schema` job for its single `datacenter1` node.
 
 ```text
 session_events_by_session
@@ -256,9 +258,8 @@ columns:
   node_id
 ```
 
-Local development uses `NetworkTopologyStrategy` with RF=1 for `datacenter1` and
-a 30-day TTL. Production should set RF per datacenter and event retention from
-audit, billing, and compliance requirements.
+The sample table keeps a 30-day TTL. Production retention should come from audit,
+billing, and compliance requirements.
 
 ## Reconciliation
 
