@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -162,7 +163,8 @@ public class SessionService {
     public int drainQueuedSessions() {
         int placed = 0;
         for (SessionRecord session : queuedSessions()) {
-            if (!stateStore.claimQueuedSession(session.sessionId(), queueClaimTtl)) {
+            Optional<String> claimToken = stateStore.claimQueuedSession(session.sessionId(), queueClaimTtl);
+            if (claimToken.isEmpty()) {
                 continue;
             }
             try {
@@ -183,7 +185,7 @@ public class SessionService {
                 saveEvent(current, "QUEUE_PLACEMENT_RESERVED");
                 placed++;
             } finally {
-                stateStore.releaseQueuedSessionClaim(session.sessionId());
+                stateStore.releaseQueuedSessionClaim(session.sessionId(), claimToken.get());
             }
         }
         return placed;

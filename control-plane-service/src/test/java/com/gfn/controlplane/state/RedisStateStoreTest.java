@@ -12,6 +12,7 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -130,6 +131,36 @@ class RedisStateStoreTest {
         stateStore.releaseIdempotencyClaim("tenant-a:idem-1", "sess-1", "fingerprint-1");
 
         verify(redisTemplate, never()).delete("state:idempotency:tenant-a:idem-1");
+    }
+
+    @Test
+    void queueClaimStoresUniqueToken() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(eq("queue-claim:session:sess-1"), any(String.class), eq(Duration.ofSeconds(30))))
+                .thenReturn(true);
+        ArgumentCaptor<String> token = ArgumentCaptor.forClass(String.class);
+
+        assertThat(stateStore.claimQueuedSession("sess-1", Duration.ofSeconds(30))).isPresent();
+        verify(valueOperations).setIfAbsent(eq("queue-claim:session:sess-1"), token.capture(), eq(Duration.ofSeconds(30)));
+        assertThat(token.getValue()).isNotBlank().isNotEqualTo("claimed");
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void queueClaimReleaseUsesCompareAndDeleteLua() {
+        ArgumentCaptor<DefaultRedisScript> script = ArgumentCaptor.forClass(DefaultRedisScript.class);
+
+        stateStore.releaseQueuedSessionClaim("sess-1", "worker-token");
+
+        verify(redisTemplate).execute(
+                script.capture(),
+                eq(List.of("queue-claim:session:sess-1")),
+                eq("worker-token")
+        );
+        assertThat(script.getValue().getScriptAsString())
+                .contains("GET", "claimKey", "claimToken")
+                .containsSubsequence("GET', claimKey", "claimToken", "DEL', claimKey");
+        verify(redisTemplate, never()).delete("queue-claim:session:sess-1");
     }
 
     @Test

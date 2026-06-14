@@ -298,8 +298,10 @@ not reset `node:{nodeId}:available_slots`; that counter is initialized on node
 registration and then changed only by reservation/release Lua scripts.
 
 Every pod can run reconciliation. Before retrying a queued session, the pod must
-claim `queue-claim:session:{sessionId}` with a short TTL and then re-read the
-session. The reservation Lua script also checks whether
+claim `queue-claim:session:{sessionId}` with a unique worker token and short TTL,
+then re-read the session. Claim release uses Lua compare-and-delete so an old
+worker cannot delete a newer worker's claim after TTL handoff. The reservation
+Lua script also checks whether
 `session:{sessionId}:lease` already exists before decrementing capacity, so a
 duplicate drain attempt cannot reserve the same session twice.
 

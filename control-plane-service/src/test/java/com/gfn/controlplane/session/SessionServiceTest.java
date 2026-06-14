@@ -119,7 +119,7 @@ class SessionServiceTest {
                 null
         );
         when(stateStore.listSessions()).thenReturn(List.of(queued));
-        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(true);
+        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(Optional.of("claim-token"));
         when(stateStore.findSession("sess-q")).thenReturn(Optional.of(queued));
         when(placementService.place(eq("sess-q"), any(CreateSessionRequest.class)))
                 .thenReturn(PlacementResult.reserved("sess-q", "node-1"));
@@ -131,14 +131,14 @@ class SessionServiceTest {
         verify(stateStore).saveSession(saved.capture());
         assertThat(saved.getValue().status()).isEqualTo(SessionStatus.RESERVED);
         assertThat(saved.getValue().nodeId()).isEqualTo("node-1");
-        verify(stateStore).releaseQueuedSessionClaim("sess-q");
+        verify(stateStore).releaseQueuedSessionClaim("sess-q", "claim-token");
     }
 
     @Test
     void skipsQueuedSessionClaimedByAnotherReplica() {
         SessionSnapshot queued = queuedSnapshot("sess-q");
         when(stateStore.listSessions()).thenReturn(List.of(queued));
-        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(false);
+        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(Optional.empty());
 
         int drained = service.drainQueuedSessions();
 
@@ -152,14 +152,14 @@ class SessionServiceTest {
         SessionSnapshot queued = queuedSnapshot("sess-q");
         SessionSnapshot alreadyReserved = reservedSnapshot("sess-q", "tenant-a");
         when(stateStore.listSessions()).thenReturn(List.of(queued));
-        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(true);
+        when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(Optional.of("claim-token"));
         when(stateStore.findSession("sess-q")).thenReturn(Optional.of(alreadyReserved));
 
         int drained = service.drainQueuedSessions();
 
         assertThat(drained).isZero();
         verifyNoInteractions(placementService);
-        verify(stateStore).releaseQueuedSessionClaim("sess-q");
+        verify(stateStore).releaseQueuedSessionClaim("sess-q", "claim-token");
     }
 
     private CreateSessionRequest request() {

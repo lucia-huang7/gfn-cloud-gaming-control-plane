@@ -6,6 +6,7 @@ import com.gfn.controlplane.persistence.SessionEvent;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -20,6 +21,14 @@ import java.util.UUID;
 
 @Component
 public class RedisStateStore {
+    private static final String LUA_RELEASE_QUEUE_CLAIM = """
+            local claimKey = KEYS[1]
+            local claimToken = ARGV[1]
+            if redis.call('GET', claimKey) == claimToken then
+              return redis.call('DEL', claimKey)
+            end
+            return 0
+            """;
     private static final String SESSION_PREFIX = "state:session:";
     private static final String SESSION_INDEX = "state:sessions";
     private static final String IDEMPOTENCY_PREFIX = "state:idempotency:";
@@ -84,12 +93,18 @@ public class RedisStateStore {
         return scanIndexedJson(SESSION_INDEX, SESSION_PREFIX, SessionSnapshot.class);
     }
 
-    public boolean claimQueuedSession(String sessionId, Duration ttl) {
-        return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(QUEUE_CLAIM_PREFIX + sessionId, "claimed", ttl));
+    public Optional<String> claimQueuedSession(String sessionId, Duration ttl) {
+        String token = UUID.randomUUID().toString();
+        boolean claimed = Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(QUEUE_CLAIM_PREFIX + sessionId, token, ttl));
+        return claimed ? Optional.of(token) : Optional.empty();
     }
 
-    public void releaseQueuedSessionClaim(String sessionId) {
-        redisTemplate.delete(QUEUE_CLAIM_PREFIX + sessionId);
+    public void releaseQueuedSessionClaim(String sessionId, String claimToken) {
+        redisTemplate.execute(
+                new DefaultRedisScript<>(LUA_RELEASE_QUEUE_CLAIM, Long.class),
+                List.of(QUEUE_CLAIM_PREFIX + sessionId),
+                claimToken
+        );
     }
 
     public void saveNode(NodeSnapshot node) {
