@@ -58,6 +58,31 @@ class RedisLeaseManagerTest {
 
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
+    void reserveLuaInitializesMissingCapacityFromAvailableSlotsNotNodeId() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate);
+        GpuNode node = new GpuNode(new RegisterNodeRequest("node-1", Region.US_WEST, GpuProfile.ULTRA, 4, 20));
+        ArgumentCaptor<DefaultRedisScript> script = ArgumentCaptor.forClass(DefaultRedisScript.class);
+
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), eq("4"), eq("node-1")))
+                .thenReturn(1L);
+
+        assertThat(manager.tryReserve(node, "sess-1")).isTrue();
+        verify(redisTemplate).execute(
+                script.capture(),
+                eq(List.of("node:node-1:available_slots", "session:sess-1:lease")),
+                eq("4"),
+                eq("node-1")
+        );
+        assertThat(script.getValue().getScriptAsString())
+                .contains("local initialCapacity = ARGV[1]", "local nodeId = ARGV[2]")
+                .containsSubsequence("SET', capacityKey, initialCapacity", "tonumber(initialCapacity)")
+                .contains("SET', leaseKey, nodeId")
+                .doesNotContain("SET', capacityKey, ARGV[2]");
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
     void releaseUsesLuaSoMissingOrMismatchedLeaseCannotOverIncrementCapacity() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         RedisLeaseManager manager = new RedisLeaseManager(redisTemplate);

@@ -12,19 +12,21 @@ public class RedisLeaseManager {
     private static final String LUA_RESERVE = """
             local capacityKey = KEYS[1]
             local leaseKey = KEYS[2]
+            local initialCapacity = ARGV[1]
+            local nodeId = ARGV[2]
             if redis.call('EXISTS', leaseKey) == 1 then
               return 0
             end
             local capacity = tonumber(redis.call('GET', capacityKey) or '-1')
             if capacity < 0 then
-              redis.call('SET', capacityKey, ARGV[2])
-              capacity = tonumber(ARGV[2])
+              redis.call('SET', capacityKey, initialCapacity)
+              capacity = tonumber(initialCapacity)
             end
             if capacity <= 0 then
               return 0
             end
             redis.call('DECR', capacityKey)
-            redis.call('SET', leaseKey, ARGV[2])
+            redis.call('SET', leaseKey, nodeId)
             return 1
             """;
     private static final String LUA_RELEASE = """
