@@ -124,7 +124,7 @@ class SessionServiceTest {
                 null,
                 null
         );
-        when(stateStore.listSessions()).thenReturn(List.of(queued));
+        when(stateStore.listQueuedSessions(100)).thenReturn(List.of(queued));
         when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(Optional.of("claim-token"));
         when(stateStore.findSession("sess-q")).thenReturn(Optional.of(queued));
         when(placementService.place(eq("sess-q"), any(CreateSessionRequest.class)))
@@ -144,7 +144,7 @@ class SessionServiceTest {
     @Test
     void skipsQueuedSessionClaimedByAnotherReplica() {
         SessionSnapshot queued = queuedSnapshot("sess-q");
-        when(stateStore.listSessions()).thenReturn(List.of(queued));
+        when(stateStore.listQueuedSessions(100)).thenReturn(List.of(queued));
         when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(Optional.empty());
 
         int drained = service.drainQueuedSessions();
@@ -158,7 +158,7 @@ class SessionServiceTest {
     void reReadsQueuedSessionAfterClaimBeforePlacement() {
         SessionSnapshot queued = queuedSnapshot("sess-q");
         SessionSnapshot alreadyReserved = reservedSnapshot("sess-q", "tenant-a");
-        when(stateStore.listSessions()).thenReturn(List.of(queued));
+        when(stateStore.listQueuedSessions(100)).thenReturn(List.of(queued));
         when(stateStore.claimQueuedSession(eq("sess-q"), eq(Duration.ofSeconds(30)))).thenReturn(Optional.of("claim-token"));
         when(stateStore.findSession("sess-q")).thenReturn(Optional.of(alreadyReserved));
 

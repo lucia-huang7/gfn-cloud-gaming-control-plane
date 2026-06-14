@@ -12,6 +12,7 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.time.Duration;
@@ -32,6 +33,7 @@ class RedisStateStoreTest {
     private final StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
     private final ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
     private final SetOperations<String, String> setOperations = mock(SetOperations.class);
+    private final ZSetOperations<String, String> zSetOperations = mock(ZSetOperations.class);
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final RedisStateStore stateStore = new RedisStateStore(redisTemplate, objectMapper, 86400, 3600);
 
@@ -39,17 +41,21 @@ class RedisStateStoreTest {
     void saveActiveSessionMaintainsActiveSecondaryIndex() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
 
         stateStore.saveSession(session("sess-1"));
 
         verify(valueOperations).set(eq("state:session:sess-1"), any(String.class));
         verify(setOperations).add("state:sessions:active", "sess-1");
+        verify(zSetOperations).add("state:sessions:queued:US_WEST:ULTRA", "sess-1", Instant.parse("2026-06-13T00:00:00Z").toEpochMilli());
+        verify(zSetOperations).remove("state:sessions:reserved:by_reservation_time", "sess-1");
     }
 
     @Test
     void saveTerminalSessionAppliesRetentionAndRemovesActiveIndexEntry() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
         SessionSnapshot session = new SessionSnapshot(
                 "sess-1",
                 "tenant-a",
@@ -68,6 +74,34 @@ class RedisStateStoreTest {
 
         verify(valueOperations).set(eq("state:session:sess-1"), any(String.class), eq(Duration.ofSeconds(86400)));
         verify(setOperations).remove("state:sessions:active", "sess-1");
+        verify(zSetOperations).remove("state:sessions:queued:US_WEST:ULTRA", "sess-1");
+        verify(zSetOperations).remove("state:sessions:reserved:by_reservation_time", "sess-1");
+    }
+
+    @Test
+    void saveReservedSessionMaintainsReservationExpiryIndex() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        Instant reservedAt = Instant.parse("2026-06-13T00:05:00Z");
+        SessionSnapshot session = new SessionSnapshot(
+                "sess-1",
+                "tenant-a",
+                "user_123",
+                "cyberpunk2077",
+                Region.US_WEST,
+                GpuProfile.ULTRA,
+                45,
+                Instant.parse("2026-06-13T00:00:00Z"),
+                SessionStatus.RESERVED,
+                "node-1",
+                reservedAt
+        );
+
+        stateStore.saveSession(session);
+
+        verify(zSetOperations).add("state:sessions:reserved:by_reservation_time", "sess-1", reservedAt.toEpochMilli());
+        verify(zSetOperations).remove("state:sessions:queued:US_WEST:ULTRA", "sess-1");
     }
 
     @Test
@@ -267,6 +301,49 @@ class RedisStateStoreTest {
         assertThat(stateStore.listNodes()).isEmpty();
 
         verify(setOperations).remove("state:nodes", "node-expired");
+    }
+
+    @Test
+    void listQueuedSessionsReadsRegionProfileShardsInsteadOfActiveSessionScan() throws Exception {
+        SessionSnapshot session = session("sess-1");
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(zSetOperations.range("state:sessions:queued:US_WEST:ULTRA", 0, 9)).thenReturn(java.util.Set.of("sess-1"));
+        when(valueOperations.get("state:session:sess-1")).thenReturn(objectMapper.writeValueAsString(session));
+
+        List<SessionSnapshot> sessions = stateStore.listQueuedSessions(10);
+
+        assertThat(sessions).containsExactly(session);
+        verify(zSetOperations).range("state:sessions:queued:US_WEST:ULTRA", 0, 9);
+        verify(setOperations, never()).scan(eq("state:sessions:active"), any(ScanOptions.class));
+    }
+
+    @Test
+    void listActiveReservationsBeforeReadsReservationTimeIndex() throws Exception {
+        SessionSnapshot session = new SessionSnapshot(
+                "sess-1",
+                "tenant-a",
+                "user_123",
+                "cyberpunk2077",
+                Region.US_WEST,
+                GpuProfile.ULTRA,
+                45,
+                Instant.parse("2026-06-13T00:00:00Z"),
+                SessionStatus.RESERVED,
+                "node-1",
+                Instant.parse("2026-06-13T00:05:00Z")
+        );
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(zSetOperations.rangeByScore("state:sessions:reserved:by_reservation_time", 0, Instant.parse("2026-06-13T00:06:00Z").toEpochMilli(), 0, 10))
+                .thenReturn(java.util.Set.of("sess-1"));
+        when(valueOperations.get("state:session:sess-1")).thenReturn(objectMapper.writeValueAsString(session));
+
+        List<SessionSnapshot> sessions = stateStore.listActiveReservationsBefore(Instant.parse("2026-06-13T00:06:00Z"), 10);
+
+        assertThat(sessions).containsExactly(session);
+        verify(zSetOperations).rangeByScore("state:sessions:reserved:by_reservation_time", 0, Instant.parse("2026-06-13T00:06:00Z").toEpochMilli(), 0, 10);
+        verify(setOperations, never()).scan(eq("state:sessions:active"), any(ScanOptions.class));
     }
 
     private SessionSnapshot session(String sessionId) {

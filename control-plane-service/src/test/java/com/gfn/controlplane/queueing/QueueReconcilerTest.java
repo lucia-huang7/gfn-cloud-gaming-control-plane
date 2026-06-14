@@ -21,12 +21,12 @@ class QueueReconcilerTest {
         NodeService nodeService = mock(NodeService.class);
         QueueReconciler reconciler = new QueueReconciler(sessionService, nodeService, 20, 45);
 
-        when(sessionService.activeReservations()).thenReturn(List.<SessionRecord>of());
+        when(sessionService.activeReservationsBefore(any(Instant.class))).thenReturn(List.<SessionRecord>of());
 
         reconciler.reconcile();
 
         verify(nodeService).markStaleNodes(any());
-        verify(sessionService).activeReservations();
+        verify(sessionService).activeReservationsBefore(any(Instant.class));
         verify(sessionService).drainQueuedSessions();
     }
 
@@ -39,7 +39,7 @@ class QueueReconcilerTest {
                 Instant.now().minusSeconds(600),
                 Instant.now()
         );
-        when(sessionService.activeReservations()).thenReturn(List.of(session));
+        when(sessionService.activeReservationsBefore(any(Instant.class))).thenReturn(List.of(session));
 
         reconciler.reconcile();
 
@@ -55,7 +55,7 @@ class QueueReconcilerTest {
                 Instant.now(),
                 Instant.now().minusSeconds(60)
         );
-        when(sessionService.activeReservations()).thenReturn(List.of(session));
+        when(sessionService.activeReservationsBefore(any(Instant.class))).thenReturn(List.of(session));
 
         reconciler.reconcile();
 

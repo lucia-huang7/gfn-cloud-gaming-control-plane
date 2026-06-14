@@ -33,6 +33,8 @@ public class RedisStateStore {
             """;
     private static final String SESSION_PREFIX = "state:session:";
     private static final String SESSION_ACTIVE_INDEX = "state:sessions:active";
+    private static final String SESSION_QUEUE_INDEX_PREFIX = "state:sessions:queued:";
+    private static final String SESSION_RESERVED_EXPIRY_INDEX = "state:sessions:reserved:by_reservation_time";
     private static final String IDEMPOTENCY_PREFIX = "state:idempotency:";
     private static final String QUEUE_CLAIM_PREFIX = "queue-claim:session:";
     private static final String NODE_PREFIX = "state:node:";
@@ -95,10 +97,21 @@ public class RedisStateStore {
         if (isTerminal(session.status())) {
             writeJson(SESSION_PREFIX + session.sessionId(), session, terminalSessionRetention);
             redisTemplate.opsForSet().remove(SESSION_ACTIVE_INDEX, session.sessionId());
+            removeSessionRoutingIndexes(session);
             return;
         }
         writeJson(SESSION_PREFIX + session.sessionId(), session);
         redisTemplate.opsForSet().add(SESSION_ACTIVE_INDEX, session.sessionId());
+        if (session.status() == SessionStatus.QUEUED) {
+            redisTemplate.opsForZSet().add(queueIndexKey(session), session.sessionId(), session.createdAt().toEpochMilli());
+            redisTemplate.opsForZSet().remove(SESSION_RESERVED_EXPIRY_INDEX, session.sessionId());
+        } else if (session.status() == SessionStatus.RESERVED) {
+            Instant reservationStartedAt = session.reservedAt() == null ? session.createdAt() : session.reservedAt();
+            redisTemplate.opsForZSet().add(SESSION_RESERVED_EXPIRY_INDEX, session.sessionId(), reservationStartedAt.toEpochMilli());
+            redisTemplate.opsForZSet().remove(queueIndexKey(session), session.sessionId());
+        } else {
+            removeSessionRoutingIndexes(session);
+        }
     }
 
     public Optional<SessionSnapshot> findSession(String sessionId) {
@@ -107,6 +120,33 @@ public class RedisStateStore {
 
     public List<SessionSnapshot> listSessions() {
         return scanIndexedJson(SESSION_ACTIVE_INDEX, SESSION_PREFIX, SessionSnapshot.class);
+    }
+
+    public List<SessionSnapshot> listQueuedSessions(int limit) {
+        List<SessionSnapshot> queued = new ArrayList<>();
+        for (RegionShard shard : RegionShard.all()) {
+            List<String> ids = rangeByRank(queueIndexKey(shard), 0, Math.max(0, limit - 1));
+            for (String id : ids) {
+                readQueuedSession(id, shard.indexKey()).ifPresent(queued::add);
+            }
+        }
+        return queued.stream()
+                .sorted((left, right) -> left.createdAt().compareTo(right.createdAt()))
+                .limit(limit)
+                .toList();
+    }
+
+    public List<SessionSnapshot> listActiveReservationsBefore(Instant cutoff, int limit) {
+        List<SessionSnapshot> reservations = new ArrayList<>();
+        for (String id : rangeByScore(SESSION_RESERVED_EXPIRY_INDEX, 0, cutoff.toEpochMilli(), limit)) {
+            Optional<SessionSnapshot> session = readJson(SESSION_PREFIX + id, SessionSnapshot.class);
+            if (session.isPresent() && session.get().status() == SessionStatus.RESERVED) {
+                reservations.add(session.get());
+            } else {
+                redisTemplate.opsForZSet().remove(SESSION_RESERVED_EXPIRY_INDEX, id);
+            }
+        }
+        return reservations;
     }
 
     public Optional<String> claimQueuedSession(String sessionId, Duration ttl) {
@@ -239,6 +279,27 @@ public class RedisStateStore {
         return values;
     }
 
+    private Optional<SessionSnapshot> readQueuedSession(String sessionId, String queueIndexKey) {
+        Optional<SessionSnapshot> session = readJson(SESSION_PREFIX + sessionId, SessionSnapshot.class);
+        if (session.isPresent() && session.get().status() == SessionStatus.QUEUED) {
+            return session;
+        }
+        redisTemplate.opsForZSet().remove(queueIndexKey, sessionId);
+        return Optional.empty();
+    }
+
+    private List<String> rangeByRank(String key, long start, long end) {
+        return Optional.ofNullable(redisTemplate.opsForZSet().range(key, start, end))
+                .map(ArrayList::new)
+                .orElseGet(ArrayList::new);
+    }
+
+    private List<String> rangeByScore(String key, double min, double max, long limit) {
+        return Optional.ofNullable(redisTemplate.opsForZSet().rangeByScore(key, min, max, 0, limit))
+                .map(ArrayList::new)
+                .orElseGet(ArrayList::new);
+    }
+
     private List<String> scanSet(String key) {
         ScanOptions options = ScanOptions.scanOptions().count(500).build();
         List<String> values = new ArrayList<>();
@@ -252,6 +313,19 @@ public class RedisStateStore {
         return NODE_CAPACITY_PREFIX + nodeId + NODE_CAPACITY_SUFFIX;
     }
 
+    private void removeSessionRoutingIndexes(SessionSnapshot session) {
+        redisTemplate.opsForZSet().remove(queueIndexKey(session), session.sessionId());
+        redisTemplate.opsForZSet().remove(SESSION_RESERVED_EXPIRY_INDEX, session.sessionId());
+    }
+
+    private String queueIndexKey(SessionSnapshot session) {
+        return queueIndexKey(new RegionShard(session.region().name(), session.gpuProfile().name()));
+    }
+
+    private String queueIndexKey(RegionShard shard) {
+        return shard.indexKey();
+    }
+
     private boolean isTerminal(SessionStatus status) {
         return status == SessionStatus.TERMINATED
                 || status == SessionStatus.EXPIRED
@@ -259,5 +333,21 @@ public class RedisStateStore {
     }
 
     private record IdempotencyValue(String sessionId, String requestFingerprint) {
+    }
+
+    private record RegionShard(String region, String gpuProfile) {
+        static List<RegionShard> all() {
+            List<RegionShard> shards = new ArrayList<>();
+            for (com.gfn.controlplane.session.Region region : com.gfn.controlplane.session.Region.values()) {
+                for (com.gfn.controlplane.session.GpuProfile gpuProfile : com.gfn.controlplane.session.GpuProfile.values()) {
+                    shards.add(new RegionShard(region.name(), gpuProfile.name()));
+                }
+            }
+            return shards;
+        }
+
+        String indexKey() {
+            return SESSION_QUEUE_INDEX_PREFIX + region + ":" + gpuProfile;
+        }
     }
 }

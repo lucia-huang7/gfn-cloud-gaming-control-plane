@@ -25,6 +25,8 @@ public class SessionService {
     private static final Duration IDEMPOTENCY_CLAIM_TTL = Duration.ofMinutes(10);
     private static final int IDEMPOTENCY_WAIT_ATTEMPTS = 20;
     private static final long IDEMPOTENCY_WAIT_MS = 25;
+    private static final int QUEUE_DRAIN_BATCH_SIZE = 100;
+    private static final int RESERVATION_EXPIRY_BATCH_SIZE = 500;
 
     private final PlacementService placementService;
     private final SessionEventPublisher eventPublisher;
@@ -155,17 +157,15 @@ public class SessionService {
     }
 
     public List<SessionRecord> queuedSessions() {
-        return stateStore.listSessions().stream()
+        return stateStore.listQueuedSessions(QUEUE_DRAIN_BATCH_SIZE).stream()
                 .map(this::fromSnapshot)
-                .filter(session -> session.status() == SessionStatus.QUEUED)
                 .sorted(Comparator.comparing(SessionRecord::createdAt))
                 .toList();
     }
 
-    public List<SessionRecord> activeReservations() {
-        return stateStore.listSessions().stream()
+    public List<SessionRecord> activeReservationsBefore(java.time.Instant cutoff) {
+        return stateStore.listActiveReservationsBefore(cutoff, RESERVATION_EXPIRY_BATCH_SIZE).stream()
                 .map(this::fromSnapshot)
-                .filter(session -> session.status() == SessionStatus.RESERVED)
                 .toList();
     }
 
