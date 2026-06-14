@@ -23,10 +23,10 @@ class RedisLeaseManagerTest {
     @Test
     void reserveUsesRedisLuaResultAsSourceOfTruth() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate, 45);
+        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate);
         GpuNode node = new GpuNode(new RegisterNodeRequest("node-1", Region.US_WEST, GpuProfile.ULTRA, 4, 20));
 
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), eq("45"), eq("4"), eq("node-1")))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), eq("4"), eq("node-1")))
                 .thenReturn(1L);
 
         assertThat(manager.tryReserve(node, "sess-1")).isTrue();
@@ -37,18 +37,17 @@ class RedisLeaseManagerTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     void reserveLuaRejectsExistingSessionLeaseBeforeDecrementingCapacity() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate, 45);
+        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate);
         GpuNode node = new GpuNode(new RegisterNodeRequest("node-1", Region.US_WEST, GpuProfile.ULTRA, 4, 20));
         ArgumentCaptor<DefaultRedisScript> script = ArgumentCaptor.forClass(DefaultRedisScript.class);
 
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), eq("45"), eq("4"), eq("node-1")))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), eq("4"), eq("node-1")))
                 .thenReturn(0L);
 
         assertThat(manager.tryReserve(node, "sess-1")).isFalse();
         verify(redisTemplate).execute(
                 script.capture(),
                 eq(List.of("node:node-1:available_slots", "session:sess-1:lease")),
-                eq("45"),
                 eq("4"),
                 eq("node-1")
         );
@@ -61,7 +60,7 @@ class RedisLeaseManagerTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     void releaseUsesLuaSoMissingOrMismatchedLeaseCannotOverIncrementCapacity() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate, 45);
+        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate);
         ArgumentCaptor<DefaultRedisScript> script = ArgumentCaptor.forClass(DefaultRedisScript.class);
 
         manager.release("node-1", "sess-1");
@@ -74,5 +73,30 @@ class RedisLeaseManagerTest {
         assertThat(script.getValue().getScriptAsString())
                 .contains("expectedNodeId", "GET", "leaseKey")
                 .containsSubsequence("GET', leaseKey", "expectedNodeId", "DEL', leaseKey", "INCR', capacityKey");
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void reserveLuaDoesNotExpireLeaseBeforeReconcilerCanReleaseCapacity() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        RedisLeaseManager manager = new RedisLeaseManager(redisTemplate);
+        GpuNode node = new GpuNode(new RegisterNodeRequest("node-1", Region.US_WEST, GpuProfile.ULTRA, 4, 20));
+        ArgumentCaptor<DefaultRedisScript> script = ArgumentCaptor.forClass(DefaultRedisScript.class);
+
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), eq("4"), eq("node-1")))
+                .thenReturn(1L);
+
+        manager.tryReserve(node, "sess-1");
+
+        verify(redisTemplate).execute(
+                script.capture(),
+                eq(List.of("node:node-1:available_slots", "session:sess-1:lease")),
+                eq("4"),
+                eq("node-1")
+        );
+        assertThat(script.getValue().getScriptAsString())
+                .contains("SET', leaseKey")
+                .doesNotContain("'EX'")
+                .doesNotContain("ttlSeconds");
     }
 }

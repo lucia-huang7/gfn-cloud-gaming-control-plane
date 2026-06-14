@@ -25,11 +25,13 @@ The Redis lease script performs these operations atomically:
 2. initialize capacity if missing
 3. reject when capacity is zero
 4. decrement capacity
-5. write a session lease with TTL
+5. write a session lease without Redis TTL
 
 The lease value stores the reserved node id. Release uses Lua to compare the
 lease value with the expected node id before deleting the lease and incrementing
-that node's capacity.
+that node's capacity. Reservation timeout is enforced by the session record and
+reconciler, not by lease-key expiration, so a late reconciler can still release
+capacity deterministically.
 
 ## Reconciliation
 

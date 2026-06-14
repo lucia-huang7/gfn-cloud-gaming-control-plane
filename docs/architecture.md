@@ -28,7 +28,7 @@ PlacementService
 
 RedisLeaseManager
   stores capacity counters
-  writes session lease keys with TTL
+  writes session lease keys without Redis TTL
   uses Lua for check/decrement/lease as one Redis operation
   uses Lua for owner-checked delete-lease/increment-capacity as one release operation
 
@@ -225,7 +225,7 @@ GET capacity
 if missing, initialize capacity
 if capacity <= 0, reject
 DECR capacity
-SET lease EX ttl
+SET lease to node id
 return reserved
 ```
 
@@ -236,6 +236,11 @@ GET lease
 if lease value == expected node id, DEL lease and INCR that node's capacity
 if lease missing or owned by another node, do not increment
 ```
+
+Lease keys do not expire independently. The session record owns the reservation
+deadline; `QueueReconciler` expires old `RESERVED` sessions and then releases
+capacity with the owner-checked Lua path. This avoids capacity leaks when Redis
+lease-key TTL would otherwise expire before reconciliation runs.
 
 ## Cassandra Table
 
