@@ -60,14 +60,18 @@ curl -X POST http://localhost:8080/api/v1/sessions \
 
 ```text
 client token -> create/read own tenant sessions, read capacity
-node token   -> register and heartbeat only its own X-Node-Id
+node credential -> register and heartbeat only its own X-Node-Id
 admin token  -> all endpoints, including terminate and node inventory
 ```
 
 Client requests must include `X-Tenant-Id`; node requests must include
-`X-Node-Id`. Idempotency keys are scoped by tenant and bound to a request-body
-fingerprint; reusing a key with a different body is rejected. Session reads are
-tenant-checked unless the caller is admin.
+`X-Node-Id`. Production-style node auth uses per-node credentials configured as
+`nodeId:version:secret`, allowing overlapping versions during rotation; the
+shared node token is only a local fallback when no per-node credentials are
+configured. Auth decisions are written to a bounded Redis audit trail.
+Idempotency keys are scoped by tenant and bound to a request-body fingerprint;
+reusing a key with a different body is rejected. Session reads are tenant-checked
+unless the caller is admin.
 
 ## Endpoints
 

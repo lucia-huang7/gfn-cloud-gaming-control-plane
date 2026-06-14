@@ -40,5 +40,6 @@ control-plane:
     client-token: ${CONTROL_PLANE_CLIENT_TOKEN:dev-client-token}
     node-token: ${CONTROL_PLANE_NODE_TOKEN:dev-node-token}
     admin-token: ${CONTROL_PLANE_ADMIN_TOKEN:dev-admin-token}
+    node-credentials: ${CONTROL_PLANE_NODE_CREDENTIALS:}
   rate-limit:
     client-create-session-per-minute: ${CONTROL_PLANE_CLIENT_CREATE_SESSION_RATE_LIMIT_PER_MINUTE:60}

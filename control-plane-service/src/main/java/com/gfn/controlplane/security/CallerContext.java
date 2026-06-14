@@ -3,12 +3,17 @@ package com.gfn.controlplane.security;
 public record CallerContext(
         CallerRole role,
         String tenantId,
-        String nodeId
+        String nodeId,
+        String credentialVersion
 ) {
     private static final ThreadLocal<CallerContext> CURRENT = new ThreadLocal<>();
 
     public CallerContext(CallerRole role, String tenantId) {
-        this(role, tenantId, null);
+        this(role, tenantId, null, null);
+    }
+
+    public CallerContext(CallerRole role, String tenantId, String nodeId) {
+        this(role, tenantId, nodeId, null);
     }
 
     public static void set(CallerContext context) {

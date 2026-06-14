@@ -44,6 +44,8 @@ stringData:
   CONTROL_PLANE_CLIENT_TOKEN: "replace-me"
   CONTROL_PLANE_NODE_TOKEN: "replace-me"
   CONTROL_PLANE_ADMIN_TOKEN: "replace-me"
+  # Format: nodeId:version:secret,nodeId:next-version:next-secret
+  CONTROL_PLANE_NODE_CREDENTIALS: "replace-node-1:v1:replace-me"
 ---
 apiVersion: apps/v1
 kind: Deployment

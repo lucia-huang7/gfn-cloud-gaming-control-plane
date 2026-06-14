@@ -23,6 +23,7 @@ class ApiAuthFilterTest {
             "client-token",
             "node-token",
             "admin-token",
+            "",
             1
     );
 
@@ -89,6 +90,77 @@ class ApiAuthFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(200);
         verify(chain).doFilter(any(), any());
+        verify(stateStore).recordAuthAudit(any(), eq(Duration.ofDays(7)), eq(10_000L));
+    }
+
+    @Test
+    void perNodeCredentialCanHeartbeatOwnNodeId() throws Exception {
+        ApiAuthFilter perNodeFilter = new ApiAuthFilter(
+                stateStore,
+                "client-token",
+                "node-token",
+                "admin-token",
+                "node-1:v1:node-secret,node-1:v2:rotated-secret",
+                1
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/nodes/node-1/heartbeat");
+        request.addHeader("X-Control-Plane-Token", "not-shared-node-token");
+        request.addHeader("X-Node-Id", "node-1");
+        request.addHeader("X-Node-Credential-Version", "v1");
+        request.addHeader("X-Node-Credential", "node-secret");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        perNodeFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(chain).doFilter(any(), any());
+    }
+
+    @Test
+    void perNodeCredentialSupportsRotatedVersion() throws Exception {
+        ApiAuthFilter perNodeFilter = new ApiAuthFilter(
+                stateStore,
+                "client-token",
+                "node-token",
+                "admin-token",
+                "node-1:v1:node-secret,node-1:v2:rotated-secret",
+                1
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/nodes/node-1/heartbeat");
+        request.addHeader("X-Control-Plane-Token", "not-shared-node-token");
+        request.addHeader("X-Node-Id", "node-1");
+        request.addHeader("X-Node-Credential-Version", "v2");
+        request.addHeader("X-Node-Credential", "rotated-secret");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        perNodeFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(chain).doFilter(any(), any());
+    }
+
+    @Test
+    void perNodeCredentialModeRejectsSharedNodeTokenFallback() throws Exception {
+        ApiAuthFilter perNodeFilter = new ApiAuthFilter(
+                stateStore,
+                "client-token",
+                "node-token",
+                "admin-token",
+                "node-1:v1:node-secret",
+                1
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/nodes/node-1/heartbeat");
+        request.addHeader("X-Control-Plane-Token", "node-token");
+        request.addHeader("X-Node-Id", "node-1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        perNodeFilter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        verify(chain, never()).doFilter(any(), any());
     }
 
     @Test

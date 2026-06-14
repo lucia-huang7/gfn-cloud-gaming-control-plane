@@ -38,6 +38,7 @@ public class RedisStateStore {
     private static final String NODE_PREFIX = "state:node:";
     private static final String NODE_INDEX = "state:nodes";
     private static final String SESSION_EVENT_DEAD_LETTER_PREFIX = "deadletter:session-event:";
+    private static final String AUTH_AUDIT_KEY = "audit:auth";
     private static final String RATE_LIMIT_PREFIX = "rate-limit:";
     private static final String NODE_CAPACITY_PREFIX = "node:";
     private static final String NODE_CAPACITY_SUFFIX = ":available_slots";
@@ -165,6 +166,16 @@ public class RedisStateStore {
             redisTemplate.expire(redisKey, ttl);
         }
         return value == null ? 0 : value;
+    }
+
+    public void recordAuthAudit(Map<String, Object> event, Duration ttl, long maxEvents) {
+        try {
+            redisTemplate.opsForList().leftPush(AUTH_AUDIT_KEY, objectMapper.writeValueAsString(event));
+            redisTemplate.opsForList().trim(AUTH_AUDIT_KEY, 0, Math.max(0, maxEvents - 1));
+            redisTemplate.expire(AUTH_AUDIT_KEY, ttl);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize auth audit event", ex);
+        }
     }
 
     private void writeJson(String key, Object value) {

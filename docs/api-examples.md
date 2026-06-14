@@ -20,6 +20,18 @@ curl -X POST http://localhost:8080/api/v1/nodes/us-west-a10g-1/heartbeat \
   -d '{"availableSlots":4,"activeSessions":0}'
 ```
 
+Production-style node heartbeat with a rotatable per-node credential:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/nodes/us-west-a10g-1/heartbeat \
+  -H 'Content-Type: application/json' \
+  -H 'X-Control-Plane-Token: node-authn' \
+  -H 'X-Node-Id: us-west-a10g-1' \
+  -H 'X-Node-Credential-Version: v2' \
+  -H 'X-Node-Credential: rotated-node-secret' \
+  -d '{"availableSlots":4,"activeSessions":0}'
+```
+
 Create a session:
 
 ```bash
