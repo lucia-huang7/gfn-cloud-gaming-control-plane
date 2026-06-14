@@ -32,7 +32,9 @@ public class RedisLeaseManager {
     private static final String LUA_RELEASE = """
             local capacityKey = KEYS[1]
             local leaseKey = KEYS[2]
-            if redis.call('DEL', leaseKey) == 1 then
+            local expectedNodeId = ARGV[1]
+            if redis.call('GET', leaseKey) == expectedNodeId then
+              redis.call('DEL', leaseKey)
               redis.call('INCR', capacityKey)
               return 1
             end
@@ -63,7 +65,8 @@ public class RedisLeaseManager {
     public void release(String nodeId, String sessionId) {
         redisTemplate.execute(
                 new DefaultRedisScript<>(LUA_RELEASE, Long.class),
-                List.of(capacityKey(nodeId), leaseKey(sessionId))
+                List.of(capacityKey(nodeId), leaseKey(sessionId)),
+                nodeId
         );
     }
 

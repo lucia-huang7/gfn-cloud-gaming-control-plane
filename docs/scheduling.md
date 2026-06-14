@@ -27,7 +27,9 @@ The Redis lease script performs these operations atomically:
 4. decrement capacity
 5. write a session lease with TTL
 
-The in-memory node state mirrors capacity for local development and tests.
+The lease value stores the reserved node id. Release uses Lua to compare the
+lease value with the expected node id before deleting the lease and incrementing
+that node's capacity.
 
 ## Reconciliation
 
@@ -36,4 +38,3 @@ The scheduled reconciler handles cases that do not complete on the request path:
 - reservations that never become streaming sessions
 - nodes that stop sending heartbeats
 - abandoned sessions whose lease should release capacity
-

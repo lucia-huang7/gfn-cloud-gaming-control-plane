@@ -58,12 +58,21 @@ class RedisLeaseManagerTest {
     }
 
     @Test
-    void releaseUsesLuaSoMissingLeaseCannotOverIncrementCapacity() {
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void releaseUsesLuaSoMissingOrMismatchedLeaseCannotOverIncrementCapacity() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         RedisLeaseManager manager = new RedisLeaseManager(redisTemplate, 45);
+        ArgumentCaptor<DefaultRedisScript> script = ArgumentCaptor.forClass(DefaultRedisScript.class);
 
         manager.release("node-1", "sess-1");
 
-        verify(redisTemplate).execute(any(DefaultRedisScript.class), eq(List.of("node:node-1:available_slots", "session:sess-1:lease")));
+        verify(redisTemplate).execute(
+                script.capture(),
+                eq(List.of("node:node-1:available_slots", "session:sess-1:lease")),
+                eq("node-1")
+        );
+        assertThat(script.getValue().getScriptAsString())
+                .contains("expectedNodeId", "GET", "leaseKey")
+                .containsSubsequence("GET', leaseKey", "expectedNodeId", "DEL', leaseKey", "INCR', capacityKey");
     }
 }
