@@ -122,12 +122,23 @@ docker run --rm \
   mvn test
 ```
 
+Docker Compose integration smoke test:
+
+```bash
+scripts/integration-smoke.sh
+```
+
+This starts the local stack, verifies HTTP auth, registers a node, creates and
+reads a session, checks the Redis lease/capacity keys, and queries Cassandra for
+the persisted placement event. Set `KEEP_STACK=1` to leave containers running
+after the smoke test.
+
 Current test coverage includes placement scoring, latency SLA filtering, Redis
 lease accounting, heartbeat/capacity separation, idempotency fingerprint checks,
 multi-replica queue drain claims, caller authorization, tenant isolation, controller
-validation, Cassandra dead-letter fallback, Redis secondary-index scans, and
-bounded Redis index retention, and replica safety checks against local
-authoritative maps.
+validation, Cassandra dead-letter fallback, Redis secondary-index scans, bounded
+Redis index retention, docker-compose integration smoke coverage, and replica
+safety checks against local authoritative maps.
 
 ## Load Test
 
